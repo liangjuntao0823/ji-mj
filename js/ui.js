@@ -532,7 +532,12 @@ function drawActions(s) {
       if (t === 'hu') { acts.push({ type: 'hu', label: '胡', cls: 'hu' }); hasHu = true; }
       else if (t === 'gangConcealed' || t === 'gangAdded') gangs.push(a);
     }
-    if (gangs.length) acts.push({ type: 'gangPick', label: '杠', cls: 'gang', gangs });
+    if (gangs.length === 1) {
+      const g = gangs[0];
+      acts.push({ type: g.type, tile: g.tile, label: '杠', cls: 'gang' });
+    } else if (gangs.length > 1) {
+      acts.push({ type: 'gangPick', label: '杠', cls: 'gang', gangs });
+    }
     const p = s.players[UI.me];
     const decl = G.getDeclareOptions ? (G.getDeclareOptions() || []) : (s.myDeclareOptions || []);
     if (p && !p.declared && !p.declareIntent && !hasHu && decl.length > 0) {
@@ -1318,7 +1323,7 @@ function bindAll() {
     if (!a) return;
     sfx('tap');
     if (a.type === 'gangPick') { showGangPick(a.gangs); return; }
-    submitAction({ type: a.type });
+    submitAction({ type: a.type, tile: a.tile });
   });
 
   const zone = $('declare-zone');

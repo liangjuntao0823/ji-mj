@@ -337,7 +337,7 @@ export class Engine {
     for (let o = 0; o < 4; o++) {
       if (o === seat) continue;
       const same = s.players[o].hand.filter((t) => t === raw).length;
-      if (same >= 3) options[o] = ['pass', 'gang'];
+      if (same >= 3) options[o] = ['pass', 'peng', 'gang'];
       else if (same === 2) options[o] = ['pass', 'peng'];
     }
     if (Object.keys(options).length === 0) {

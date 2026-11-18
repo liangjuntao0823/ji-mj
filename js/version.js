@@ -1,8 +1,18 @@
 /* 版本号与更新记录：每次发版同步修改这里与根目录 CHANGELOG.md */
-export const APP_VERSION = '1.0.5';
+export const APP_VERSION = '1.0.6';
 export const APP_RELEASED_AT = '2026-11-18';
 
 export const APP_RELEASES = [
+  {
+    version: '1.0.6',
+    date: '2026-11-18',
+    updates: [
+      '有明杠时可以选择杠、碰或者过，不再只能杠或过',
+    ],
+    fixes: [
+      '暗杠和回头笑改成点「杠」按钮直接杠，不用再点上面的小字选牌',
+    ],
+  },
   {
     version: '1.0.5',
     date: '2026-11-18',
