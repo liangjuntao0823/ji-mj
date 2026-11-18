@@ -1,8 +1,21 @@
 /* 版本号与更新记录：每次发版同步修改这里与根目录 CHANGELOG.md */
-export const APP_VERSION = '1.0.1';
+export const APP_VERSION = '1.0.2';
 export const APP_RELEASED_AT = '2026-11-18';
 
 export const APP_RELEASES = [
+  {
+    version: '1.0.2',
+    date: '2026-11-18',
+    updates: [
+      '语音播报改成即时播报：每次事件直接打断上一句，不再排队，解决语音延迟',
+      '碰、明杠、暗杠、回头笑、自摸、流局都会播报，且每个客户端都独立播报',
+      '修复 Safari 添加到主屏幕后底部/右侧留白、首屏错位和灵动岛挡顶栏',
+    ],
+    fixes: [
+      '修复 Safari 独立窗口视口尺寸不准造成的空白区域',
+      '修复首次进桌已有副露时漏播碰/杠，以及首屏未完成布局就显示的问题',
+    ],
+  },
   {
     version: '1.0.1',
     date: '2026-11-18',

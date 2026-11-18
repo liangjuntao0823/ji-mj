@@ -57,7 +57,7 @@ const UI = {
   roomCode: '',
   voiceRound: 0,
   voiceKey: '',
-  voiceMelds: ['', '', '', ''],
+  voiceMelds: [null, null, null, null],
   voiceResult: '',
 };
 
@@ -174,7 +174,7 @@ export function initTable(opts) {
   G.voicePrimed = false;
   UI.voiceRound = 0;
   UI.voiceKey = '';
-  UI.voiceMelds = ['', '', '', ''];
+  UI.voiceMelds = [null, null, null, null];
   UI.voiceResult = '';
   UI.result = null; UI.boardOpen = false; UI.paused = false;
   UI.matchStats = { wins: [0, 0, 0, 0], fan: [0, 0, 0, 0] };
@@ -953,15 +953,31 @@ function zoomSupported() {
 }
 
 export function applyLayoutUnits() {
-  /* Safari 独立窗口里 clientHeight 有时只到工具栏上方，innerHeight 才是整屏；
-     两边取最大值，保证旋转后的 app 真正铺满屏幕，不在底部留黑边。 */
   const root = D.documentElement;
   const vv = window.visualViewport;
-  const vw = Math.round(Math.max(root.clientWidth || 0, window.innerWidth || 0, (vv && vv.width) || 0));
-  const vh = Math.round(Math.max(root.clientHeight || 0, window.innerHeight || 0, (vv && vv.height) || 0));
-  /* 手机竖屏锁定也能直接横过来：把整个 app 旋转 90°，再按横屏尺寸排版。
-     舞台尺寸 = 视口 / 缩放比，缩放后刚好铺满视口，宽屏不再留左右黑边。 */
-  const portrait = !!(window.matchMedia && window.matchMedia('(orientation: portrait) and (max-width: 900px)').matches);
+  let vw = Math.round(Math.max(root.clientWidth || 0, window.innerWidth || 0, (vv && vv.width) || 0));
+  let vh = Math.round(Math.max(root.clientHeight || 0, window.innerHeight || 0, (vv && vv.height) || 0));
+
+  /* Safari 加到主屏幕（standalone）时，innerHeight/clientHeight 经常只算到
+     工具栏或安全区上方；但 screen 仍是整块屏幕，于是底部/右侧会空一条。
+     只在独立窗口里用 screen 尺寸补齐，普通浏览器标签页不受影响。 */
+  const standalone = !!(window.navigator.standalone ||
+    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches));
+  if (standalone && window.screen) {
+    const sw = Math.round(Math.min(window.screen.width || 0, window.screen.height || 0));
+    const sh = Math.round(Math.max(window.screen.width || 0, window.screen.height || 0));
+    if (vw <= vh) {
+      vw = Math.max(vw, sw);
+      vh = Math.max(vh, sh);
+    } else {
+      vw = Math.max(vw, sh);
+      vh = Math.max(vh, sw);
+    }
+  }
+
+  /* 不依赖 orientation 媒体查询：Safari 独立窗口首屏偶尔还没算好方向，
+     直接比较长宽最可靠。竖屏锁定也能立刻旋转排版，不用用户去关竖屏锁。 */
+  const portrait = vh > vw * 1.05;
   const W = portrait ? vh : vw;
   const H = portrait ? vw : vh;
   const s = Math.min(W / 1440, H / 810);
@@ -970,8 +986,6 @@ export function applyLayoutUnits() {
   const app = $('app');
   if (app) {
     app.classList.toggle('is-rotate', portrait);
-    /* 关键：旋转后 app 的宽 = 竖屏高度，高 = 竖屏宽度；显式写像素并居中，
-       避免 Safari 独立窗口下 100vh 与实际可视高度不一致造成的黑边/上缩。 */
     if (portrait) {
       app.style.width = `${vh}px`;
       app.style.height = `${vw}px`;
@@ -1012,12 +1026,31 @@ function requestLandscapeLock() {
 }
 
 export function bindLayout() {
-  applyLayoutUnits();
+  const app = $('app');
+  let bootFrames = 0;
+  const settleLayout = () => {
+    applyLayoutUnits();
+    bootFrames += 1;
+    if (bootFrames < 4) {
+      setTimeout(settleLayout, 90);
+    } else if (app) {
+      /* 前几帧先用同色底遮住，避免 Safari 独立窗口首屏先按未稳定的
+         viewport 画出一个错位画面，过几秒才跳回正常。 */
+      app.classList.add('is-ready');
+    }
+  };
+  settleLayout();
+
   window.addEventListener('resize', applyLayoutUnits);
   window.addEventListener('orientationchange', () => setTimeout(applyLayoutUnits, 320));
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', applyLayoutUnits);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', applyLayoutUnits);
+    window.visualViewport.addEventListener('scroll', applyLayoutUnits);
+  }
   D.addEventListener('fullscreenchange', () => setTimeout(applyLayoutUnits, 320));
   if (D.readyState !== 'complete') D.addEventListener('DOMContentLoaded', applyLayoutUnits);
+  window.addEventListener('load', () => { applyLayoutUnits(); if (app) app.classList.add('is-ready'); }, { once: true });
+  window.addEventListener('pageshow', () => { applyLayoutUnits(); if (app) app.classList.add('is-ready'); });
 }
 
 export function toggleFullscreen() {
@@ -1044,8 +1077,6 @@ export function setVoice(on) {
   try { localStorage.setItem('jianli_voice', VOICE_ON ? '1' : '0'); } catch (e) {}
   if (!VOICE_ON && SPEECH) {
     try { SPEECH.cancel(); } catch (e) {}
-    speechQueue.length = 0;
-    speechBusy = false;
   }
   if (VOICE_ON) primeSpeech();
   syncVoice();
@@ -1067,8 +1098,6 @@ function syncVoice() {
 const SPEECH = (typeof window !== 'undefined' && 'speechSynthesis' in window
   && typeof window.SpeechSynthesisUtterance !== 'undefined') ? window.speechSynthesis : null;
 let speechVoice = null;
-let speechBusy = false;
-const speechQueue = [];
 
 function pickSpeechVoice() {
   if (!SPEECH) return;
@@ -1094,29 +1123,20 @@ function primeSpeech() {
 
 function speak(text) {
   if (!VOICE_ON || !SPEECH || !text) return;
-  if (speechQueue.length > 8) speechQueue.shift();
-  speechQueue.push(text);
-  if (!speechBusy) drainSpeech();
-}
-
-function drainSpeech() {
-  if (!VOICE_ON || !SPEECH) { speechQueue.length = 0; speechBusy = false; return; }
-  const text = speechQueue.shift();
-  if (!text) { speechBusy = false; return; }
-  speechBusy = true;
+  /* 参考旧版：播报前直接 cancel 掉上一句，不做队列。
+     手机 TTS 队列很容易一首一句地积压，听起来就像延迟好几秒。 */
+  try {
+    if (SPEECH.speaking || SPEECH.pending) SPEECH.cancel();
+    if (SPEECH.paused) SPEECH.resume();
+  } catch (e) {}
   try {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'zh-CN';
-    u.rate = 1.02;
-    u.pitch = 0.96;
-    if (!speechVoice) pickSpeechVoice();
-    if (speechVoice) u.voice = speechVoice;
-    u.onend = () => setTimeout(drainSpeech, 40);
-    u.onerror = () => setTimeout(drainSpeech, 40);
+    u.rate = 1.15;
+    u.pitch = 1.05;
+    u.volume = 1;
     SPEECH.speak(u);
-  } catch (e) {
-    setTimeout(drainSpeech, 40);
-  }
+  } catch (e) {}
 }
 
 if (SPEECH) {
@@ -1137,7 +1157,7 @@ function announceState(s) {
   if (UI.voiceRound !== round) {
     UI.voiceRound = round;
     UI.voiceKey = '';
-    UI.voiceMelds = ['', '', '', ''];
+    UI.voiceMelds = [null, null, null, null];
     UI.voiceResult = '';
   }
 
@@ -1157,9 +1177,9 @@ function announceState(s) {
     const p = s.players[seat];
     const melds = (p && p.melds) || [];
     const sig = melds.map((m) => `${m.kind}:${m.tile}`).join('|');
-    const old = (UI.voiceMelds && UI.voiceMelds[seat]) || '';
+    const old = UI.voiceMelds ? UI.voiceMelds[seat] : null;
     if (sig !== old) {
-      if (!old) { UI.voiceMelds[seat] = sig; continue; }  /* 进桌时已有副露，不补播 */
+      if (old === null || old === undefined) { UI.voiceMelds[seat] = sig; continue; }  /* 进桌首帧已有副露，不补播 */
       const oldParts = old ? old.split('|') : [];
       let changed = null;
       for (let i = 0; i < melds.length; i++) {

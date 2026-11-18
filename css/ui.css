@@ -40,7 +40,9 @@ html, body {
 
 /* Safari“添加到主屏幕”后是独立窗口，inset:0 的布局视口可能比实际可视区大，
    会造成底部黑边、整体上缩。尺寸改由 applyLayoutUnits() 按真实视口像素写入。 */
-#app { position: fixed; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; background: #04130f; }
+#app { position: fixed; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; background: #04130f;
+  opacity: 0; transition: opacity 0.14s ease; }
+#app.is-ready { opacity: 1; }
 /* 手机竖屏锁定时，整页旋转成横屏；不要求用户解除竖屏锁定 */
 #app.is-rotate {
   inset: auto;
