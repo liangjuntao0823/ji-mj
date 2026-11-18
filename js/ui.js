@@ -1121,22 +1121,29 @@ function primeSpeech() {
   } catch (e) {}
 }
 
+let speechTimer = 0;
 function speak(text) {
   if (!VOICE_ON || !SPEECH || !text) return;
   /* 参考旧版：播报前直接 cancel 掉上一句，不做队列。
-     手机 TTS 队列很容易一首一句地积压，听起来就像延迟好几秒。 */
+     手机 TTS 队列很容易一句一句地积压，听起来就像延迟好几秒。
+     cancel 后不能立刻 speak：iOS 会把新一句的开头（也就是玩家名字）吞掉，
+     所以留一个很短的间隔再起播。 */
   try {
     if (SPEECH.speaking || SPEECH.pending) SPEECH.cancel();
     if (SPEECH.paused) SPEECH.resume();
   } catch (e) {}
-  try {
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'zh-CN';
-    u.rate = 1.15;
-    u.pitch = 1.05;
-    u.volume = 1;
-    SPEECH.speak(u);
-  } catch (e) {}
+  clearTimeout(speechTimer);
+  speechTimer = setTimeout(() => {
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'zh-CN';
+      if (speechVoice) u.voice = speechVoice;
+      u.rate = 1.15;
+      u.pitch = 1.05;
+      u.volume = 1;
+      SPEECH.speak(u);
+    } catch (e) {}
+  }, 60);
 }
 
 if (SPEECH) {
@@ -1168,7 +1175,7 @@ function announceState(s) {
     const key = `${round}|${ld.seat}|${ld.tile}|${(p && p.discardCount) || 0}|${ld.seq || 0}`;
     if (key !== UI.voiceKey) {
       UI.voiceKey = key;
-      speak(`${voiceName(s, ld.seat)}，打${label(ld.tile)}`);
+      speak(`${voiceName(s, ld.seat)}，打出，${label(ld.tile)}`);
     }
   }
 
@@ -1192,7 +1199,7 @@ function announceState(s) {
             : changed.kind === 'gangConcealed' ? '暗杠'
               : changed.kind === 'gangAdded' ? '回头笑' : '杠';
         const t = label(changed.tile);
-        speak(kind === '碰' ? `${voiceName(s, seat)}，碰${t}` : `${voiceName(s, seat)}，${kind}${t}`);
+        speak(kind === '碰' ? `${voiceName(s, seat)}，碰，${t}` : `${voiceName(s, seat)}，${kind}，${t}`);
       }
       UI.voiceMelds[seat] = sig;
     }

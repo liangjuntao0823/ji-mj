@@ -1,8 +1,19 @@
 /* 版本号与更新记录：每次发版同步修改这里与根目录 CHANGELOG.md */
-export const APP_VERSION = '1.0.2';
+export const APP_VERSION = '1.0.3';
 export const APP_RELEASED_AT = '2026-11-18';
 
 export const APP_RELEASES = [
+  {
+    version: '1.0.3',
+    date: '2026-11-18',
+    updates: [
+      '语音播报统一改成「玩家名 + 动作 + 牌」，例如「阿强，打出，九万」',
+      '指定中文发音人并修复 iOS 取消上一句后吞掉开头玩家名的问题',
+    ],
+    fixes: [
+      '修复语音播报听不到玩家名字的问题',
+    ],
+  },
   {
     version: '1.0.2',
     date: '2026-11-18',
