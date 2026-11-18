@@ -27,6 +27,7 @@ T('清一色 + 对子胡 + 清摸球 7.5', 7.5, { hand: [0, 0, 0, 1, 1, 1, 2, 2,
 T('明活带 3 + 清一色 4 = 7', 7, { hand: [0, 1, 1, 1, 2, 2, 3, 3, 3, 4, 4], melds: [{ kind: 'peng', tile: 0 }], drawCount: 7 }, ['明活带', '清一色']);
 T('只是碰过 + 清一色 = 4（屁胡底不记）', 4, { hand: [1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 5], melds: [{ kind: 'peng', tile: 0 }], drawCount: 7 }, ['清一色']);
 T('裸奔 7 倍（+清一色 11）', 11, { hand: [6, 6], melds: [{ kind: 'peng', tile: 0 }, { kind: 'peng', tile: 1 }, { kind: 'peng', tile: 2 }, { kind: 'peng', tile: 3 }], drawCount: 8 });
+T('裸奔 7 倍（3 副露含杠 + 单钓）', 7, { hand: [9, 9], melds: [{ kind: 'peng', tile: 0 }, { kind: 'peng', tile: 1 }, { kind: 'gangAdded', tile: 2 }, { kind: 'gangExposed', tile: 3 }], drawCount: 8 });
 T('十八罗汉 10 倍（+清一色 14）', 14, { hand: [6, 6], melds: [{ kind: 'gangConcealed', tile: 0 }, { kind: 'gangExposed', tile: 1 }, { kind: 'gangAdded', tile: 2 }, { kind: 'gangConcealed', tile: 3 }], drawCount: 8 });
 T('明活带 3 倍（碰过的牌又摸回来）', 3, { hand: [5, 9, 9, 9, 18, 18, 18, 0, 0, 1, 2], melds: [{ kind: 'peng', tile: 5 }], drawCount: 6 }, ['明活带']);
 T('天胡 +5（屁胡不记）', 5, { hand: MI, melds: [], drawCount: 1, dealer: 0, seat: 0 }, ['天胡']);

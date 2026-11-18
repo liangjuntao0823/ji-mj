@@ -5,6 +5,7 @@
    ============================================================ */
 import { TILE_SRC, label, RED_RAW, SEAT_LABEL } from './tiles.js';
 import { waitingTiles } from './win.js';
+import { APP_VERSION, APP_RELEASED_AT, APP_RELEASES } from './version.js';
 
 /* 会话对象：字段与契约版完全一致 */
 export const G = {
@@ -123,6 +124,7 @@ function closeOverlays() {
   const p = $('paused'); if (p) p.classList.remove('show');
   const rb = $('ready-bar'); if (rb) rb.classList.remove('is-on');
   const rm = $('rules-modal'); if (rm) rm.classList.remove('show');
+  const cm = $('changelog-modal'); if (cm) cm.classList.remove('show');
   UI.boardOpen = false;
   UI.result = null;
   UI.paused = false;
@@ -130,9 +132,28 @@ function closeOverlays() {
 
 /* ---------------- 会话（契约函数） ---------------- */
 
+function renderVersion() {
+  const badge = $('home-version');
+  if (badge) badge.textContent = `v${APP_VERSION} · ${APP_RELEASED_AT}`;
+  const lead = $('changelog-lead');
+  if (lead) lead.textContent = `当前版本 v${APP_VERSION} · ${APP_RELEASED_AT}`;
+  const list = $('changelog-list');
+  if (!list) return;
+  list.innerHTML = APP_RELEASES.map((rel) => {
+    const rows = (items, cls, title) => items && items.length
+      ? `<div class="release-col ${cls}"><div class="release-col-title">${title}</div><ul>${items.map((s) => `<li>${esc(s)}</li>`).join('')}</ul></div>`
+      : '';
+    return `<div class="release-row">
+      <div class="release-head"><strong>v${esc(rel.version)}</strong><span>${esc(rel.date)}</span></div>
+      <div class="release-body">${rows(rel.updates, 'upd', '更新')}${rows(rel.fixes, 'fix', '修复')}</div>
+    </div>`;
+  }).join('');
+}
+
 export function initHome() {
   showView('home');
   renderHomeTiles();
+  renderVersion();
   syncVoice();
   applyLayoutUnits();
 }
@@ -925,10 +946,19 @@ function zoomSupported() {
 export function applyLayoutUnits() {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const s = Math.min(vw / 1440, vh / 810);
+  /* 手机竖屏锁定也能直接横过来：把整个 app 旋转 90°，再按横屏尺寸排版。
+     舞台尺寸 = 视口 / 缩放比，缩放后刚好铺满视口，宽屏不再留左右黑边。 */
+  const portrait = !!(window.matchMedia && window.matchMedia('(orientation: portrait) and (max-width: 900px)').matches);
+  const W = portrait ? vh : vw;
+  const H = portrait ? vw : vh;
+  const s = Math.min(W / 1440, H / 810);
   const sc = $('scaler');
   const st = $('stage');
+  const app = $('app');
+  if (app) app.classList.toggle('is-rotate', portrait);
   if (sc && st) {
+    st.style.width = `${W / s}px`;
+    st.style.height = `${H / s}px`;
     if (zoomSupported()) {
       sc.style.transform = 'none';
       st.style.zoom = String(s);
@@ -939,19 +969,30 @@ export function applyLayoutUnits() {
   }
   UI.scale = s;
   const rh = $('rotate-hint');
-  if (rh) rh.classList.toggle('is-on', vw < vh * 1.02);
+  if (rh) rh.classList.toggle('is-on', !portrait && vw < vh * 1.02);
+}
+
+function requestLandscapeLock() {
+  try {
+    if (screen.orientation && typeof screen.orientation.lock === 'function') {
+      const p = screen.orientation.lock('landscape');
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch (e) {}
 }
 
 export function bindLayout() {
   applyLayoutUnits();
   window.addEventListener('resize', applyLayoutUnits);
   window.addEventListener('orientationchange', () => setTimeout(applyLayoutUnits, 320));
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', applyLayoutUnits);
   D.addEventListener('fullscreenchange', () => setTimeout(applyLayoutUnits, 320));
   if (D.readyState !== 'complete') D.addEventListener('DOMContentLoaded', applyLayoutUnits);
 }
 
 export function toggleFullscreen() {
   const d = D;
+  requestLandscapeLock();
   if (!d.fullscreenElement) {
     try {
       const p = d.documentElement.requestFullscreen ? d.documentElement.requestFullscreen() : null;
@@ -1060,6 +1101,12 @@ function bindAll() {
   if (rc) rc.addEventListener('click', () => { const m = $('rules-modal'); if (m) m.classList.remove('show'); });
   const rmodal = $('rules-modal');
   if (rmodal) rmodal.addEventListener('click', (e) => { if (e.target === rmodal) rmodal.classList.remove('show'); });
+  const cl = $('home-changelog');
+  if (cl) cl.addEventListener('click', () => { sfx('tap'); const m = $('changelog-modal'); if (m) { renderVersion(); m.classList.add('show'); } });
+  const cc = $('changelog-close');
+  if (cc) cc.addEventListener('click', () => { const m = $('changelog-modal'); if (m) m.classList.remove('show'); });
+  const cmodal = $('changelog-modal');
+  if (cmodal) cmodal.addEventListener('click', (e) => { if (e.target === cmodal) cmodal.classList.remove('show'); });
 
   const hv = $('home-voice'); if (hv) hv.addEventListener('click', () => setVoice(!voiceOn()));
   const tv = $('btn-voice'); if (tv) tv.addEventListener('click', () => setVoice(!voiceOn()));
@@ -1102,12 +1149,13 @@ function bindAll() {
     if (e.target.closest('#btn-declare')) submitAction({ type: 'declare' });
   });
 
-  const unlock = () => { audio(); D.removeEventListener('pointerdown', unlock); };
+  const unlock = () => { audio(); requestLandscapeLock(); D.removeEventListener('pointerdown', unlock); };
   D.addEventListener('pointerdown', unlock);
 
   D.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       const rm = $('rules-modal'); if (rm) rm.classList.remove('show');
+      const cm = $('changelog-modal'); if (cm) cm.classList.remove('show');
       if (UI.boardOpen) hideBoard();
     }
   });

@@ -101,7 +101,9 @@ export function judgeFans({ hand, melds, lastDrawn, wallRemaining, afterGang, dr
   } else if (melds.length === 0 && hand.length === 14 && pairHandRaw) {
     if (hasQuad(hand)) { base = 8; baseName = '豪华七对'; }
     else { base = 4; baseName = '七对'; }
-  } else if (melds.length === 4 && hand.length === 2 && hand[0] === hand[1] && gangs.length === 0) {
+  } else if (melds.length === 4 && hand.length === 2 && hand[0] === hand[1]) {
+    /* 裸奔 = 4 副露 + 单钓。碰、明杠、暗杠、回头笑都算副露；
+       4 个杠的十八罗汉已在上面优先命中。 */
     base = 7; baseName = '裸奔';
   } else if (melds.every((m) => m.kind === 'peng' || m.kind.startsWith('gang')) && isAllTriplets(hand)) {
     base = 3; baseName = '对子胡';

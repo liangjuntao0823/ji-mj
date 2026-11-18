@@ -39,6 +39,14 @@ html, body {
 }
 
 #app { position: fixed; inset: 0; overflow: hidden; background: #030c0a; }
+/* 手机竖屏锁定时，整页旋转成横屏；不要求用户解除竖屏锁定 */
+#app.is-rotate {
+  inset: auto;
+  left: 50%; top: 50%;
+  width: 100vh; height: 100vw;
+  transform: translate(-50%, -50%) rotate(90deg);
+  transform-origin: center center;
+}
 
 /* 缩放舞台 */
 #scaler {
@@ -46,7 +54,7 @@ html, body {
   display: flex; align-items: center; justify-content: center;
   transform-origin: 50% 50%;
 }
-#stage { position: relative; flex: 0 0 auto; width: 1440px; height: 810px; overflow: hidden; }
+#stage { position: relative; flex: 0 0 auto; width: 100%; height: 100%; overflow: hidden; }
 
 button { font-family: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
 input { font-family: inherit; }
@@ -214,6 +222,15 @@ img { -webkit-user-drag: none; user-select: none; }
 .home-eyebrow::before {
   content: ""; width: 26px; height: 1px; background: rgba(217, 184, 120, 0.6);
 }
+.home-version {
+  display: inline-flex; align-items: center;
+  margin-top: 12px; height: 26px; padding: 0 11px;
+  border-radius: 13px;
+  font-size: 12px; letter-spacing: 1.2px;
+  color: rgba(247, 230, 184, 0.76);
+  background: rgba(4, 22, 18, 0.62);
+  border: 1px solid rgba(217, 184, 120, 0.28);
+}
 .home-title {
   margin: 22px 0 0;
   font-family: "STZhongsong", "Songti SC", "SimSun", serif;
@@ -300,6 +317,7 @@ img { -webkit-user-drag: none; user-select: none; }
   margin-top: 18px; padding-top: 16px;
   border-top: 1px solid rgba(217, 184, 120, 0.14);
 }
+.menu-links { display: flex; align-items: center; gap: 18px; }
 .menu-foot .rule-link {
   font-size: 14px; letter-spacing: 1px; color: rgba(244, 236, 216, 0.62);
   padding: 7px 2px; border-bottom: 1px solid rgba(217, 184, 120, 0.3);
@@ -482,7 +500,7 @@ img { -webkit-user-drag: none; user-select: none; }
 /* 四家位置 */
 .seat { position: absolute; inset: 0; pointer-events: none; }
 .seat .plate { position: absolute; pointer-events: auto; }
-.plate-top { left: 300px; top: 58px; }
+.plate-top { left: calc(50% - 420px); top: 58px; }
 .plate-left { left: 44px; top: 132px; }
 .plate-right { right: 44px; top: 132px; }
 .plate-me { left: 40px; bottom: 18px; padding: 9px 16px 9px 11px; }
@@ -596,7 +614,7 @@ img { -webkit-user-drag: none; user-select: none; }
 .hand-hint.is-off { display: none; }
 
 /* 牌河 */
-.river-box { position: absolute; left: 340px; top: 96px; width: 760px; height: 559px; }
+.river-box { position: absolute; left: 50%; transform: translateX(-50%); top: 96px; width: 760px; height: 559px; }
 .river {
   position: absolute;
   display: flex;
@@ -1119,6 +1137,25 @@ img { -webkit-user-drag: none; user-select: none; }
   z-index: 105;
 }
 #rules-modal.show { display: flex; }
+#changelog-modal {
+  position: absolute; inset: 0; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(2, 10, 8, 0.66);
+  backdrop-filter: blur(3px);
+  z-index: 106;
+}
+#changelog-modal.show { display: flex; }
+.changelog-card { width: 720px; max-height: 700px; }
+.changelog-list { display: flex; flex-direction: column; gap: 12px; }
+.release-row { padding: 13px 15px 14px; border-radius: 14px; background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(217, 184, 120, 0.16); }
+.release-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(217, 184, 120, 0.12); }
+.release-head strong { font-size: 17px; letter-spacing: 2px; color: var(--gold-hi); font-weight: 600; }
+.release-head span { font-size: 12px; letter-spacing: 1px; color: rgba(244, 236, 216, 0.45); }
+.release-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 9px; }
+.release-col-title { margin-bottom: 4px; font-size: 12px; letter-spacing: 2px; color: rgba(247, 230, 184, 0.72); }
+.release-col.fix .release-col-title { color: #e9a48f; }
+.release-col ul { margin: 0; padding-left: 16px; }
+.release-col li { margin: 3px 0; font-size: 12.5px; line-height: 1.55; color: rgba(244, 236, 216, 0.68); letter-spacing: 0.3px; }
 .rules-card {
   width: 860px; max-height: 745px; overflow: auto;
   padding: 22px 30px 18px;
@@ -1128,6 +1165,7 @@ img { -webkit-user-drag: none; user-select: none; }
   box-shadow: 0 30px 70px rgba(0, 0, 0, 0.7);
   animation: cardIn 0.28s ease both;
 }
+#changelog-modal .rules-card { width: 720px; max-height: 700px; }
 .rules-card h3 { margin: 0; text-align: center; font-family: "STZhongsong", "Songti SC", "SimSun", serif; font-size: 27px; letter-spacing: 4px; color: var(--gold-hi); font-weight: 500; }
 .rules-card .rules-lead { margin: 6px 0 12px; text-align: center; font-size: 13px; color: rgba(244, 236, 216, 0.45); letter-spacing: 1px; }
 .rules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

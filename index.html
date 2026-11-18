@@ -24,6 +24,7 @@
 
         <div class="home-left">
           <div class="home-eyebrow">湖北 · 监利 · 红中皮子</div>
+          <div class="home-version" id="home-version">v1.0.0</div>
           <h1 class="home-title">监利红中<em>MAHJONG</em></h1>
           <p class="home-desc">
             112 张牌，<b>红中当皮必打</b>，<b>只许自摸</b>，碰杠四档算分。
@@ -67,7 +68,10 @@
             </button>
 
             <div class="menu-foot">
-              <button class="rule-link" id="home-rules">规则与番型</button>
+              <div class="menu-links">
+                <button class="rule-link" id="home-rules">规则与番型</button>
+                <button class="rule-link" id="home-changelog">更新记录</button>
+              </div>
               <div class="toggles">
                 <button class="icon-btn" id="home-voice" title="声音开关" aria-label="声音开关">
                   <svg viewBox="0 0 24 24"><path d="M4 9.5h3l4-3.5v11L7 14.5H4z"/><path d="M15.5 8.5a4.4 4.4 0 0 1 0 7" class="v-wave"/></svg>
@@ -254,6 +258,16 @@
             </div>
           </div>
           <button class="rules-close" id="rules-close">知道了</button>
+        </div>
+      </div>
+
+      <!-- ===== 更新记录 ===== -->
+      <div id="changelog-modal">
+        <div class="rules-card changelog-card">
+          <h3>更新记录</h3>
+          <div class="rules-lead" id="changelog-lead"></div>
+          <div class="changelog-list" id="changelog-list"></div>
+          <button class="rules-close" id="changelog-close">知道了</button>
         </div>
       </div>
 

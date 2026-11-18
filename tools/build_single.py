@@ -10,7 +10,7 @@ OUT = ROOT / "监利红中-横屏版.html"
 
 ORDER = [
     "tileArt.js", "tiles.js", "win.js", "engine.js",
-    "bot.js", "ui.js", "net.js", "p2p.js", "game.js",
+    "bot.js", "version.js", "ui.js", "net.js", "p2p.js", "game.js",
 ]
 
 
@@ -45,7 +45,7 @@ loader = r"""
 /* 单文件运行器：把内联的模块源码按依赖顺序做成 blob 模块并载入 */
 (async function () {
   const files = JSON.parse(document.getElementById('mods').textContent);
-  const order = ['tileArt.js','tiles.js','win.js','engine.js','bot.js','ui.js','net.js','p2p.js','game.js'];
+  const order = ['tileArt.js','tiles.js','win.js','engine.js','bot.js','version.js','ui.js','net.js','p2p.js','game.js'];
   const url = {};
   for (const name of order) {
     let code = files[name];
