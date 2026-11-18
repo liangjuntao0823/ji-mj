@@ -1042,6 +1042,12 @@ export function voiceOn() { return VOICE_ON; }
 export function setVoice(on) {
   VOICE_ON = !!on;
   try { localStorage.setItem('jianli_voice', VOICE_ON ? '1' : '0'); } catch (e) {}
+  if (!VOICE_ON && SPEECH) {
+    try { SPEECH.cancel(); } catch (e) {}
+    speechQueue.length = 0;
+    speechBusy = false;
+  }
+  if (VOICE_ON) primeSpeech();
   syncVoice();
   showToast(VOICE_ON ? '已开启声音' : '已关闭声音', '', 1200);
   if (VOICE_ON) sfx('tap');
@@ -1058,7 +1064,8 @@ function syncVoice() {
  * 播报只依赖“快照里的状态变化”，不依赖本地动作事件，
  * 所以单机、局域网、P2P 的每个客户端都会各自播报，不会只有房主响。
  */
-const SPEECH = (typeof window !== 'undefined' && 'speechSynthesis' in window) ? window.speechSynthesis : null;
+const SPEECH = (typeof window !== 'undefined' && 'speechSynthesis' in window
+  && typeof window.SpeechSynthesisUtterance !== 'undefined') ? window.speechSynthesis : null;
 let speechVoice = null;
 let speechBusy = false;
 const speechQueue = [];
