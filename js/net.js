@@ -18,25 +18,55 @@ const NET = {
   nextReady: [false, false, false, false],
 };
 
+/* 公网服务器地址：空 = 当前页面同源（局域网版 / 本机 server.js）。
+ * B 模式填 https://jianli-majiang.pages.dev，跨网络也能入座。 */
+let BASE = '';
+try { BASE = (localStorage.getItem('jianli_server_base') || '').replace(/\/+$/, ''); } catch (e) {}
+
 const el = (id) => document.getElementById(id);
 
 function api(path, opts) {
-  return fetch(path, opts).then((r) => r.json());
+  return fetch(BASE + path, opts).then((r) => r.json());
+}
+
+function clearToken() {
+  NET.token = null;
+  try {
+    localStorage.removeItem('jianli_token');
+    localStorage.removeItem('jianli_token_base');
+  } catch (e) {}
 }
 
 /* ---------------- 入口 ---------------- */
 
-export function openLAN() {
+export function openLAN(serverBase) {
   window.__lobbyBack = exitLAN;
-  if (location.protocol === 'file:') {
-    alert('局域网联机要先启动服务器：\n\n1. 双击 start-server.bat（或运行 node server.js）\n2. 用浏览器打开控制台显示的地址\n\n单机模式可以直接玩。');
+
+  if (typeof serverBase === 'string') {
+    const next = serverBase.trim().replace(/\/+$/, '');
+    if (next !== BASE) clearToken();
+    BASE = next;
+    try { localStorage.setItem('jianli_server_base', BASE); } catch (e) {}
+  }
+
+  if (location.protocol === 'file:' && !BASE) {
+    alert('局域网联机要先启动服务器：\n\n1. 双击 start-server.bat（或运行 node server.js）\n2. 用浏览器打开控制台显示的地址\n\n单机模式可以直接玩；跨网络请选「公网服务器」。');
     return;
   }
+
   /* 刷新页面后用本地保存的 token 直接回座（断线重连） */
-  if (!NET.token) {
-    try { NET.token = localStorage.getItem('jianli_token') || null; } catch (e) {}
-  }
+  try {
+    if (localStorage.getItem('jianli_token_base') !== BASE) clearToken();
+    if (!NET.token) NET.token = localStorage.getItem('jianli_token') || null;
+  } catch (e) {}
+
   el('lobby').classList.add('show');
+  const title = document.querySelector('.lobby-title');
+  const sub = document.querySelector('.lobby-sub');
+  if (title) title.textContent = BASE ? '公网联机' : '联机房间';
+  if (sub) sub.textContent = BASE
+    ? '公网服务器 · 不同网络也能进 · 第一人当房主'
+    : '同一个 WiFi 打开同一网址即可入座 · 房主开局';
   el('lobby-name').value = NET.name || localStorage.getItem('jianli_name') || '';
   if (NET.token) {
     pollOnce().then(() => { if (NET.token) startPolling(); });
@@ -53,6 +83,7 @@ el('lobby-join').addEventListener('click', async () => {
   NET.token = r.token;
   NET.seat = r.seat;
   localStorage.setItem('jianli_token', r.token);
+  localStorage.setItem('jianli_token_base', BASE);
   el('lobby-name-row').style.display = 'none';
   startPolling();
 });
@@ -169,24 +200,28 @@ function renderLobby(r) {
   }
 
   const actions = el('lobby-actions');
-  actions.innerHTML = '';
-  if (r.seats && r.seats.length >= 4 && NET.seat === 0) {
-    const b = document.createElement('button');
-    b.className = 'big-btn';
-    b.textContent = '开始对局';
-    b.onclick = async () => { await api('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: NET.token }) }); pollOnce(); };
-    actions.append(b);
-  } else if (NET.seat === 0) {
-    const b = document.createElement('button');
-    b.className = 'big-btn';
-    b.textContent = '开始对局（空位补机器人）';
-    b.onclick = async () => { await api('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: NET.token }) }); pollOnce(); };
-    actions.append(b);
-  } else {
-    const t = document.createElement('div');
-    t.style.cssText = 'color: rgba(243,236,216,.6); font-size: 14px;';
-    t.textContent = '等待房主开始对局…';
-    actions.append(t);
+  const sig = `${NET.seat}|${(r.seats || []).length}|${r.started ? 1 : 0}`;
+  if (actions.dataset.sig !== sig) {
+    actions.dataset.sig = sig;
+    actions.innerHTML = '';
+    if (r.seats && r.seats.length >= 4 && NET.seat === 0) {
+      const b = document.createElement('button');
+      b.className = 'big-btn';
+      b.textContent = '开始对局';
+      b.onclick = async () => { await api('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: NET.token }) }); pollOnce(); };
+      actions.append(b);
+    } else if (NET.seat === 0) {
+      const b = document.createElement('button');
+      b.className = 'big-btn';
+      b.textContent = '开始对局（空位补机器人）';
+      b.onclick = async () => { await api('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: NET.token }) }); pollOnce(); };
+      actions.append(b);
+    } else {
+      const t = document.createElement('div');
+      t.style.cssText = 'color: rgba(243,236,216,.6); font-size: 14px;';
+      t.textContent = '等待房主开始对局…';
+      actions.append(t);
+    }
   }
 }
 
@@ -197,7 +232,7 @@ function enterGame() {
   el('lobby').classList.remove('show');
   initTable({
     humanSeat: NET.seat,
-    mode: 'lan',
+    mode: BASE ? 'net' : 'lan',
     totalRounds: 8,
     getState: () => NET.snap,
     getMyActions: () => (NET.snap && NET.snap.myActions) || [],
@@ -241,8 +276,8 @@ function exitLAN() {
   NET.snap = null;
   NET.version = -1;
   NET.lastPhase = '';
-  NET.token = null;
-  try { localStorage.removeItem('jianli_token'); } catch (e) {}
+  clearToken();
+  try { localStorage.removeItem('jianli_token'); localStorage.removeItem('jianli_token_base'); } catch (e) {}
   hideResult();
   backToHome();
   el('lobby').classList.remove('show');

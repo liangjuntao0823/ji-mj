@@ -24,7 +24,7 @@
 
         <div class="home-left">
           <div class="home-eyebrow">湖北 · 监利 · 红中皮子</div>
-          <div class="home-version" id="home-version">v1.0.7</div>
+          <div class="home-version" id="home-version">v1.0.8</div>
           <h1 class="home-title">监利红中<em>MAHJONG</em></h1>
           <p class="home-desc">
             112 张牌，<b>红中当皮必打</b>，<b>只许自摸</b>，碰杠四档算分。
@@ -35,7 +35,13 @@
 
         <div class="home-right">
           <div class="home-menu">
-            <div class="home-menu-label">开始一桌</div>
+            <div class="home-menu-label">
+              <span>开始一桌</span>
+              <div class="net-switch" id="net-switch" role="tablist" aria-label="联机方式">
+                <button class="net-opt is-on" data-net="p2p" role="tab" aria-selected="true" onclick="window.JianliGame && window.JianliGame.setNetMode('p2p')">手机直连</button>
+                <button class="net-opt" data-net="server" role="tab" aria-selected="false" onclick="window.JianliGame && window.JianliGame.setNetMode('server')">公网服务器</button>
+              </div>
+            </div>
 
             <button class="menu-btn primary" id="btn-single">
               <span class="mb-icon">
@@ -52,8 +58,8 @@
                 <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 16 0"/><path d="M7.5 15a5 5 0 0 1 9 0"/><circle cx="12" cy="18" r="1.4"/></svg>
               </span>
               <span>
-                <span class="mb-main">联机房间</span>
-                <span class="mb-sub">同一 WiFi，打开同一网址即可入座</span>
+                <span class="mb-main" id="lan-main">联机房间</span>
+                <span class="mb-sub" id="lan-sub">手机直连 · 输入房号加入</span>
               </span>
             </button>
 
@@ -62,8 +68,8 @@
                 <svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>
               </span>
               <span>
-                <span class="mb-main">手机建房</span>
-                <span class="mb-sub">同一 WiFi 直连 · 掉线自动重连</span>
+                <span class="mb-main" id="p2p-main">手机建房</span>
+                <span class="mb-sub" id="p2p-sub">手机直连 · 创建房间</span>
               </span>
             </button>
 
@@ -282,6 +288,8 @@
   </div>
 </div>
 
+<!-- 公网服务器地址：B 模式「公网服务器」走这里；与页面同源，跨网络可用 -->
+<script>window.JIANLI_SERVER_URL = 'https://jianli-majiang.pages.dev';</script>
 <!-- PeerJS：手机点对点建房用，需在模块脚本之前加载（挂 window.Peer） -->
 <script src="js/vendor/peerjs.min.js"></script>
 <script type="module" src="js/game.js"></script>

@@ -39,7 +39,7 @@ const AVATARS = [
   'assets/img/avatar-qiang.jpg',
 ];
 const AVATAR_BY_NAME = { '涛': 0, '老李': 1, '小美': 2, '阿强': 3 };
-const MODE_TAG = { single: '单机对局', lan: '局域网联机', p2p: '手机联机' };
+const MODE_TAG = { single: '单机对局', lan: '局域网联机', net: '公网联机', p2p: '手机联机' };
 const REASON = { selfDraw: '自摸', pointGang: '明杠', concealedGang: '暗杠', addedGang: '回头笑', redGang: '红中杠' };
 const UI = {
   view: 'home',
@@ -1283,7 +1283,8 @@ function bindAll() {
   if (p2p) p2p.addEventListener('click', () => {
     sfx('tap');
     const g = window.JianliGame;
-    if (g && typeof g.openP2P === 'function') { closeOverlays(); g.openP2P(); }
+    if (g && typeof g.openNetwork === 'function') { closeOverlays(); g.openNetwork(); }
+    else if (g && typeof g.openP2P === 'function') { closeOverlays(); g.openP2P(); }
   });
   const rules = $('home-rules');
   if (rules) rules.addEventListener('click', () => { sfx('tap'); const m = $('rules-modal'); if (m) m.classList.add('show'); });

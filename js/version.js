@@ -1,8 +1,21 @@
 /* 版本号与更新记录：每次发版同步修改这里与根目录 CHANGELOG.md */
-export const APP_VERSION = '1.0.7';
-export const APP_RELEASED_AT = '2026-11-18';
+export const APP_VERSION = '1.0.8';
+export const APP_RELEASED_AT = '2026-11-19';
 
 export const APP_RELEASES = [
+  {
+    version: '1.0.8',
+    date: '2026-11-19',
+    updates: [
+      '联机新增「公网服务器」模式：不在同一个 WiFi、跨运营商也能进同一桌，打开网页输入名字就能入座',
+      '首页「开始一桌」右上角新增「手机直连 / 公网服务器」切换，想用哪种联机方式自己选',
+      '公网服务器第一人自动当房主，空位自动补机器人，房号在页面上直接显示',
+    ],
+    fixes: [
+      '修复公网大厅「开始对局」按钮被后台轮询反复重建、点下去没反应的问题',
+      '放大首页联机方式切换按钮，手机横屏更好点，减少点不中的情况',
+    ],
+  },
   {
     version: '1.0.7',
     date: '2026-11-18',

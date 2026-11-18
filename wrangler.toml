@@ -1,0 +1,11 @@
+name = "jianli-majiang-api"
+main = "worker/index.js"
+compatibility_date = "2026-11-18"
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]

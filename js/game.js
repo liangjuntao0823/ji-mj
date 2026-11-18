@@ -35,6 +35,68 @@ const on = (id, fn) => { const n = el(id); if (n) n.addEventListener('click', fn
 
 /* ---------------- 入口 ---------------- */
 initHome();
+
+/* 联机方式：手机直连（P2P）或公网服务器（同域 /api）。
+ * 首页的切换入口只改行为，不删原来的两个入口。 */
+const SERVER_URL = String(window.JIANLI_SERVER_URL || '').replace(/\/+$/, '');
+const NET_MODE_KEY = 'jianli_net_mode';
+let NET_MODE = 'p2p';
+try { NET_MODE = localStorage.getItem(NET_MODE_KEY) === 'server' ? 'server' : 'p2p'; } catch (e) {}
+try {
+  const q = new URLSearchParams(location.search).get('net');
+  if (q === 'server' || q === 'p2p') NET_MODE = q;
+} catch (e) {}
+
+function paintNetMode() {
+  document.querySelectorAll('.net-opt').forEach((b) => {
+    const on = b.dataset.net === NET_MODE;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  const lanMain = el('lan-main');
+  const lanSub = el('lan-sub');
+  const p2pMain = el('p2p-main');
+  const p2pSub = el('p2p-sub');
+  if (NET_MODE === 'server') {
+    if (lanMain) lanMain.textContent = '公网房间';
+    if (lanSub) lanSub.textContent = '公网服务器 · 不同网络也能进';
+    if (p2pMain) p2pMain.textContent = '公网建房';
+    if (p2pSub) p2pSub.textContent = '公网服务器 · 第一人当房主';
+  } else {
+    if (lanMain) lanMain.textContent = '联机房间';
+    if (lanSub) lanSub.textContent = '手机直连 · 输入房号加入';
+    if (p2pMain) p2pMain.textContent = '手机建房';
+    if (p2pSub) p2pSub.textContent = '手机直连 · 创建房间';
+  }
+  const lanBtn = el('btn-lan');
+  const p2pBtn = el('home-p2p');
+  if (lanBtn) lanBtn.classList.toggle('net-active', NET_MODE === 'server');
+  if (p2pBtn) p2pBtn.classList.toggle('net-active', NET_MODE === 'p2p');
+}
+
+function setNetMode(mode) {
+  NET_MODE = mode === 'server' ? 'server' : 'p2p';
+  try { localStorage.setItem(NET_MODE_KEY, NET_MODE); } catch (e) {}
+  paintNetMode();
+}
+
+function openNetwork() {
+  if (NET_MODE === 'server') {
+    if (!SERVER_URL) {
+      showToast('公网服务器地址还没配置');
+      return;
+    }
+    openLAN(SERVER_URL);
+    return;
+  }
+  openP2P();
+}
+
+paintNetMode();
+document.querySelectorAll('.net-opt').forEach((b) => {
+  b.addEventListener('click', () => { setNetMode(b.dataset.net); });
+});
+
 on('lobby-back', () => {
   if (window.__lobbyBack) { window.__lobbyBack(); return; }
   const lb = el('lobby'); if (lb) lb.classList.remove('show');
@@ -42,22 +104,7 @@ on('lobby-back', () => {
 });
 
 on('btn-single', startSingle);
-/* 联机入口：有服务器（node server.js / 云托管）走局域网模式；
- * 纯静态打开（双击 HTML、手机本地打开）没有后端，走手机 P2P 建房。 */
-on('btn-lan', () => {
-  if (location.protocol === 'file:') { openP2P(); return; }
-  let settled = false;
-  const go = (serverMode) => {
-    if (settled) return;
-    settled = true;
-    if (serverMode) openLAN(); else openP2P();
-  };
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => { ctrl.abort(); go(false); }, 1200);
-  fetch('/api/room', { signal: ctrl.signal, cache: 'no-store' })
-    .then((r) => { clearTimeout(timer); r.json().then(() => go(true)).catch(() => go(false)); })
-    .catch(() => { clearTimeout(timer); go(false); });
-});
+on('btn-lan', openNetwork);
 
 function startSingle() {
   const seed = (Date.now() & 0xffffffff) >>> 0;
@@ -323,4 +370,4 @@ export function attachEngine(engine, humanSeat, mode, names, rounds) {
 }
 
 /* 新 UI 的入口就这三个：开局、局域网、手机 P2P */
-window.JianliGame = { startSingle, attachEngine, openLAN, openP2P, S };
+window.JianliGame = { startSingle, attachEngine, openLAN, openP2P, openNetwork, setNetMode, S };

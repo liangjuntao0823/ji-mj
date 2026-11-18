@@ -106,8 +106,8 @@ function makeCode() {
 function buildEntryUI() {
   el('lobby').classList.add('show');
   el('lobby-name-row').style.display = 'none';
-  document.querySelector('.lobby-title').textContent = '手机联机';
-  document.querySelector('.lobby-sub').textContent = '同一个 WiFi：一个人开房，其他人输 6 位房号加入';
+  document.querySelector('.lobby-title').textContent = '手机直连';
+  document.querySelector('.lobby-sub').textContent = '不同网络也能连：一个人开房，其他人输 6 位房号加入';
 
   let box = el('p2p-box');
   if (!box) {
@@ -704,6 +704,11 @@ function guestRetry(reason) {
     return;
   }
   const delay = Math.min(1000 + P.reconnectTry * 800, 6000);
+  /* 直连两次没通就改走 TURN 中继，跨运营商/跨网络时更稳 */
+  if (P.reconnectTry === 2 && !window.JIANLI_FORCE_RELAY) {
+    window.JIANLI_FORCE_RELAY = true;
+    status('直连没通，改用中继重连…');
+  }
   status(`${reason || '连接断了'}，正在重连房主…（第 ${P.reconnectTry} 次）`);
   P.reconnectTimer = setTimeout(() => {
     P.reconnectTimer = null;
