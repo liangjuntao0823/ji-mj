@@ -268,26 +268,26 @@ img { -webkit-user-drag: none; user-select: none; }
 .home-tiles .tile:nth-child(4) { transform: rotate(12deg) translateY(6px); }
 
 .home-right {
-  position: absolute; right: 92px; top: 50%; transform: translateY(-50%); width: 470px;
+  position: absolute; right: 78px; top: 50%; transform: translateY(-50%); width: 510px;
 }
 .home-menu {
-  padding: 26px;
-  border-radius: 22px;
+  padding: 30px;
+  border-radius: 24px;
   background: linear-gradient(180deg, rgba(10, 42, 35, 0.72), rgba(5, 24, 20, 0.82));
   border: 1px solid rgba(217, 184, 120, 0.2);
   box-shadow: 0 24px 44px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(3px);
 }
 .home-menu-label {
-  font-size: 13px; letter-spacing: 3px; color: rgba(217, 184, 120, 0.7);
-  margin-bottom: 16px;
+  font-size: 14px; letter-spacing: 3px; color: rgba(217, 184, 120, 0.7);
+  margin-bottom: 18px;
 }
 .menu-btn {
   position: relative;
-  display: flex; align-items: center; gap: 14px;
-  width: 100%; height: 78px;
-  margin-bottom: 13px; padding: 0 22px;
-  border-radius: 16px;
+  display: flex; align-items: center; gap: 16px;
+  width: 100%; height: 86px;
+  margin-bottom: 14px; padding: 0 24px;
+  border-radius: 17px;
   text-align: left;
   border: 1px solid rgba(217, 184, 120, 0.24);
   background: linear-gradient(180deg, rgba(24, 74, 62, 0.92), rgba(9, 38, 32, 0.94));
@@ -297,14 +297,14 @@ img { -webkit-user-drag: none; user-select: none; }
 .menu-btn:hover { transform: translateX(-3px); border-color: rgba(247, 230, 184, 0.55); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 10px 22px rgba(0, 0, 0, 0.42); }
 .menu-btn:active { transform: scale(0.988); }
 .menu-btn .mb-icon {
-  width: 40px; height: 40px; flex: 0 0 auto;
-  border-radius: 12px; display: flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; flex: 0 0 auto;
+  border-radius: 13px; display: flex; align-items: center; justify-content: center;
   background: rgba(4, 22, 18, 0.55);
   border: 1px solid rgba(217, 184, 120, 0.26);
 }
-.menu-btn .mb-icon svg { width: 21px; height: 21px; stroke: var(--gold-hi); stroke-width: 1.7; fill: none; }
-.menu-btn .mb-main { display: block; font-size: 21px; font-weight: 600; letter-spacing: 2px; color: var(--ink); }
-.menu-btn .mb-sub { display: block; margin-top: 3px; font-size: 13px; letter-spacing: 0.6px; color: rgba(244, 236, 216, 0.5); }
+.menu-btn .mb-icon svg { width: 23px; height: 23px; stroke: var(--gold-hi); stroke-width: 1.7; fill: none; }
+.menu-btn .mb-main { display: block; font-size: 23px; font-weight: 600; letter-spacing: 2px; color: var(--ink); }
+.menu-btn .mb-sub { display: block; margin-top: 4px; font-size: 14px; letter-spacing: 0.6px; color: rgba(244, 236, 216, 0.5); }
 .menu-btn > span:not(.mb-icon) { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
 .menu-btn.primary {
   border-color: rgba(247, 230, 184, 0.55);
@@ -318,32 +318,32 @@ img { -webkit-user-drag: none; user-select: none; }
 
 .menu-foot {
   display: flex; align-items: center; justify-content: space-between;
-  margin-top: 18px; padding-top: 16px;
+  margin-top: 22px; padding-top: 18px;
   border-top: 1px solid rgba(217, 184, 120, 0.14);
 }
 .menu-links { display: flex; align-items: center; gap: 18px; }
 .menu-foot .rule-link {
-  font-size: 14px; letter-spacing: 1px; color: rgba(244, 236, 216, 0.62);
+  font-size: 15px; letter-spacing: 1px; color: rgba(244, 236, 216, 0.62);
   padding: 7px 2px; border-bottom: 1px solid rgba(217, 184, 120, 0.3);
 }
 .menu-foot .rule-link:hover { color: var(--gold-hi); }
-.menu-foot .toggles { display: flex; gap: 8px; }
+.menu-foot .toggles { display: flex; gap: 9px; }
 
 .rules-strip {
-  margin-top: 18px;
+  margin-top: 20px;
   display: grid; grid-template-columns: repeat(4, 1fr);
   gap: 1px;
-  border-radius: 14px;
+  border-radius: 15px;
   overflow: hidden;
   background: rgba(217, 184, 120, 0.16);
 }
 .rules-strip div {
-  padding: 12px 8px;
+  padding: 14px 8px;
   background: rgba(5, 24, 20, 0.86);
   text-align: center;
 }
-.rules-strip b { display: block; font-size: 22px; color: var(--gold-hi); font-weight: 600; letter-spacing: 1px; }
-.rules-strip span { display: block; margin-top: 4px; font-size: 12px; color: rgba(244, 236, 216, 0.48); letter-spacing: 1px; }
+.rules-strip b { display: block; font-size: 25px; color: var(--gold-hi); font-weight: 600; letter-spacing: 1px; }
+.rules-strip span { display: block; margin-top: 4px; font-size: 13px; color: rgba(244, 236, 216, 0.48); letter-spacing: 1px; }
 
 /* ============================================================
    牌桌
@@ -959,12 +959,17 @@ img { -webkit-user-drag: none; user-select: none; }
   padding: 3px 5px; border-radius: 6px; color: #2a1b06;
   background: linear-gradient(180deg, #ffe9b8, #d8b062);
 }
-.rb-fen { font-size: 22px; font-weight: 700; line-height: 1.1; color: rgba(244, 236, 216, 0.85); }
-.rb-fen em { font-style: normal; font-size: 11px; font-weight: 500; margin-left: 2px; opacity: 0.6; }
-.rb-fen.pos { color: #9de0c0; }
-.rb-fen.neg { color: #ef9b86; }
-.rb-oil { font-size: 10px; letter-spacing: 0; color: rgba(244, 236, 216, 0.4); white-space: nowrap; }
-.rb-total { font-size: 11px; letter-spacing: 0.5px; color: rgba(244, 236, 216, 0.45); }
+.rb-stat {
+  display: flex; align-items: baseline; justify-content: center; gap: 6px;
+  width: 100%; white-space: nowrap;
+  font-size: 13px; letter-spacing: 0.3px;
+  color: rgba(244, 236, 216, 0.62);
+}
+.rb-stat em { font-style: normal; font-size: 11px; color: rgba(244, 236, 216, 0.4); }
+.rb-stat b { font-size: 16px; font-weight: 600; color: rgba(244, 236, 216, 0.82); }
+.rb-stat b.pos { color: #9de0c0; }
+.rb-stat b.neg { color: #ef9b86; }
+.rb-red b { color: var(--gold-hi); }
 
 .ready-strip {
   display: flex; justify-content: center; gap: 8px; margin-top: 16px; flex-wrap: wrap;
@@ -1213,13 +1218,12 @@ img { -webkit-user-drag: none; user-select: none; }
 .result-table th { font-size: 15px; }
 .result-table td.name { padding-left: 22px; }
 .round-board { grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
-.rb-cell { padding: 14px 8px 12px; gap: 4px; border-radius: 14px; }
+.rb-cell { padding: 14px 8px 12px; gap: 5px; border-radius: 14px; }
 .rb-name { font-size: 16px; }
 .rb-hu { font-size: 12px; padding: 4px 7px; }
-.rb-fen { font-size: 28px; }
-.rb-fen em { font-size: 13px; }
-.rb-oil { font-size: 12px; }
-.rb-total { font-size: 14px; }
+.rb-stat { font-size: 14px; }
+.rb-stat em { font-size: 12px; }
+.rb-stat b { font-size: 18px; }
 .result-actions { margin-top: 20px; }
 .result-actions .big-btn { height: 50px; font-size: 17px; }
 

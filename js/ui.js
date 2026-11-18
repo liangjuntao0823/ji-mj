@@ -442,16 +442,15 @@ function remainingOf(raw) {
   return Math.max(0, 4 - seen);
 }
 
-/* 右下角听牌提示：听哪几张、每张还剩几张；手上有 14 张时跟着选中的牌实时变 */
+/* 右下角听牌提示：听哪几张、每张还剩几张；听牌后常显，别人回合也不消失 */
 function drawTing(s) {
   const el = $('ting-panel');
   if (!el) return;
   const p = s && s.players && s.players[UI.me];
   let waits = [];
   let tag = '';
-  /* 只在轮到自己出牌时才提示，别在家还没选牌/别人回合里乱报听口 */
   const myTurn = !!s && s.phase === 'awaitingDiscard' && s.current === UI.me;
-  if (p && UI.view === 'table' && myTurn) {
+  if (p && UI.view === 'table') {
     const hand = p.hand || [];
     const melds = (p.melds || []).length;
     const calc = (idx) => {
@@ -461,8 +460,9 @@ function drawTing(s) {
       return waitingTiles(rest, melds, true);
     };
     if (hand.length % 3 === 1) {
+      /* 13 张定型手牌：不管轮到谁，只要听牌就常显听口 */
       if (!hand.includes(RED_RAW)) waits = waitingTiles(hand, melds, true);
-    } else if (hand.length % 3 === 2) {
+    } else if (myTurn && hand.length % 3 === 2) {
       /* 碰完要自己选打哪张时，不算「默认打掉摸的这张」，等选中再提示 */
       const afterPeng = s.mustDiscard === UI.me || s.lastDrawn === null || s.lastDrawn === undefined;
       const selOK = !!(UI.sel && hand[UI.sel.i] === UI.sel.raw);
@@ -714,7 +714,6 @@ function winHtml(payload) {
   const hand = r.hand || payload.hand || [];
   const melds = r.melds || payload.melds || [];
   const gang = r.gangSettled || payload.gangSettled || [];
-  const winnerReds = r.winnerReds != null ? r.winnerReds : ((players[winner] && players[winner].redsPlayed) || 0);
 
   const fanChips = fans.map((f) => `<span class="fan-chip${f.add ? ' add' : ''}">${esc(f.name)} <b>${f.add ? '+' : '×'}${f.mult}</b></span>`).join('');
   const handTiles = hand.map((t) => tileHtml(t, '')).join('') + melds.map((m) => meldHtml(m)).join('');
@@ -735,7 +734,7 @@ function winHtml(payload) {
     <div class="result-sub">第 ${s.roundIndex || 1}/${G.totalRounds || 8} 局 · 自摸${mult != null ? ` · 总倍数 ${mult}` : ''}</div>
     ${fanChips ? `<div class="result-fans">${fanChips}</div>` : ''}
     <div class="result-hand">${handTiles}</div>
-    <div class="round-board">${roundBoard(scores, delta, names, { winner, wr: winnerReds, reds: players.map((p) => p.redsPlayed || 0) })}</div>
+    <div class="round-board">${roundBoard(scores, delta, names, { winner, reds: players.map((p) => p.redsPlayed || 0) })}</div>
     ${readyStrip(payload.ready, names, payload.mySeat)}
     <div class="result-actions">
       <button class="big-btn" id="res-next">下 一 局</button>
@@ -743,26 +742,20 @@ function winHtml(payload) {
     </div>`;
 }
 
-/* 单局分数面板：本局份数（1+N油互乘）+ 本局得分 + 总分，赢家高亮 */
+/* 单局分数面板：每家只显示本局增减分、累计总分、打出的红中数；赢家高亮 */
 function roundBoard(scores, delta, names, opt = {}) {
   const winner = opt.winner != null ? opt.winner : -1;
-  const wr = opt.wr || 0;
   const reds = opt.reds || [0, 0, 0, 0];
-  const fmt = (v) => {
-    const f = Math.round((v / 10) * 10) / 10;
-    return (f > 0 ? '+' : '') + String(f);
-  };
   return (scores || []).map((v, i) => {
     const fen = delta[i] || 0;
     const isWin = i === winner;
     const pr = reds[i] || 0;
-    const oil = winner < 0 ? '' : isWin ? `(1+${wr}油)×3家` : `(1+${wr}油)×(1+${pr}油)`;
     return `
     <div class="rb-cell${i === UI.me ? ' is-me' : ''}${isWin ? ' is-win' : ''}">
       <span class="rb-name">${esc(names[i] || ('座位' + i))}${isWin ? '<i class="rb-hu">胡</i>' : ''}</span>
-      <b class="rb-fen ${fen > 0 ? 'pos' : fen < 0 ? 'neg' : ''}">${fmt(fen)}<em>份</em></b>
-      <span class="rb-oil">${oil}</span>
-      <span class="rb-total">本局 ${num(fen)} 分 · 总分 ${num(v)}</span>
+      <span class="rb-stat"><em>本局</em><b class="${fen > 0 ? 'pos' : fen < 0 ? 'neg' : ''}">${num(fen)} 分</b></span>
+      <span class="rb-stat"><em>总分</em><b class="${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${num(v)} 分</b></span>
+      <span class="rb-stat rb-red"><em>红中</em><b>${pr} 个</b></span>
     </div>`;
   }).join('');
 }

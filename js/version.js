@@ -1,8 +1,20 @@
 /* 版本号与更新记录：每次发版同步修改这里与根目录 CHANGELOG.md */
-export const APP_VERSION = '1.0.4';
+export const APP_VERSION = '1.0.5';
 export const APP_RELEASED_AT = '2026-11-18';
 
 export const APP_RELEASES = [
+  {
+    version: '1.0.5',
+    date: '2026-11-18',
+    updates: [
+      '首页右侧开始面板整体放大，按钮、说明文字和规则统计更清楚',
+      '单机对局、联机房间、手机建房入口全部加大，手机横屏更好点',
+    ],
+    fixes: [
+      '单局结算面板去掉份数显示，只保留本局得分、总分和红中个数',
+      '听牌提示改为常显，别人出牌时也一直显示听什么牌',
+    ],
+  },
   {
     version: '1.0.4',
     date: '2026-11-18',
