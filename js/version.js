@@ -1,8 +1,16 @@
 /* 版本号与更新记录：每次发版同步修改这里与根目录 CHANGELOG.md */
-export const APP_VERSION = '1.0.6';
+export const APP_VERSION = '1.0.7';
 export const APP_RELEASED_AT = '2026-11-18';
 
 export const APP_RELEASES = [
+  {
+    version: '1.0.7',
+    date: '2026-11-18',
+    updates: [
+      '牌河的牌加大两号，自己手牌也加大两号，牌面更清楚',
+    ],
+    fixes: [],
+  },
   {
     version: '1.0.6',
     date: '2026-11-18',
