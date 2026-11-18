@@ -7,7 +7,7 @@
 
 - 网址：<https://jianli-majiang.pages.dev/>
 - 仓库：<https://github.com/liangjuntao0823/ji-mj>（公开）
-- Cloudflare Pages：连接 `ji-mj` 的 `main` 分支，构建命令留空，输出目录 `/`，每次 push 自动发布。
+- Cloudflare Pages：项目 `jianli-majiang` 为 Direct Upload（拖拽上传 `index.html` 发布），不接 Git 自动构建；源码与单文件成品在 `ji-mj`，每次改版先推仓库，再把 `监利红中-横屏版.html` 复制为 `index.html` 上传到该项目。
 - 在线版支持单机、手机 P2P 建房/加入；局域网模式需要本机跑 `server.js`（Pages 只托管静态页面，不跑 Node）。
 
 ---
