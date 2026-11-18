@@ -1153,11 +1153,6 @@ if (SPEECH) {
 D.addEventListener('pointerdown', () => { if (!G.voicePrimed) primeSpeech(); }, { once: true });
 D.addEventListener('touchstart', () => { if (!G.voicePrimed) primeSpeech(); }, { once: true, passive: true });
 
-function voiceName(s, seat) {
-  const p = s && s.players && s.players[seat];
-  return (p && p.name) || (G.seatNames && G.seatNames[seat]) || (WIND[seat] + '家');
-}
-
 function announceState(s) {
   if (!VOICE_ON || !s || !s.players) return;
   const round = s.roundIndex || 1;
@@ -1175,7 +1170,7 @@ function announceState(s) {
     const key = `${round}|${ld.seat}|${ld.tile}|${(p && p.discardCount) || 0}|${ld.seq || 0}`;
     if (key !== UI.voiceKey) {
       UI.voiceKey = key;
-      speak(`${voiceName(s, ld.seat)}，打出，${label(ld.tile)}`);
+      speak(label(ld.tile));
     }
   }
 
@@ -1199,7 +1194,7 @@ function announceState(s) {
             : changed.kind === 'gangConcealed' ? '暗杠'
               : changed.kind === 'gangAdded' ? '回头笑' : '杠';
         const t = label(changed.tile);
-        speak(kind === '碰' ? `${voiceName(s, seat)}，碰，${t}` : `${voiceName(s, seat)}，${kind}，${t}`);
+        speak(kind === '碰' ? `碰${t}` : `${kind}${t}`);
       }
       UI.voiceMelds[seat] = sig;
     }
@@ -1214,7 +1209,7 @@ function announceState(s) {
       else if (s.result && s.result.winner !== undefined) {
         const winner = s.result.winner;
         const fans = (s.result.fans || []).map((f) => (typeof f === 'string' ? f : f.name)).filter(Boolean).join('，');
-        speak(`${voiceName(s, winner)}，自摸${fans ? '，' + fans : ''}`);
+        speak(`自摸${fans ? '，' + fans : ''}`);
       }
     }
   }

@@ -1,8 +1,19 @@
 /* 版本号与更新记录：每次发版同步修改这里与根目录 CHANGELOG.md */
-export const APP_VERSION = '1.0.3';
+export const APP_VERSION = '1.0.4';
 export const APP_RELEASED_AT = '2026-11-18';
 
 export const APP_RELEASES = [
+  {
+    version: '1.0.4',
+    date: '2026-11-18',
+    updates: [
+      '语音播报去掉玩家名字，只播牌名和碰/杠/胡等动作',
+      '例如出牌只报「五筒」，碰只报「碰五筒」',
+    ],
+    fixes: [
+      '修正语音播报内容，不再念玩家昵称',
+    ],
+  },
   {
     version: '1.0.3',
     date: '2026-11-18',
