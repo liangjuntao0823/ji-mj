@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>监利红中 · 逻辑核心自测</title>
+<style>
+  body { margin:0; background:#0d2a24; color:#d9e8dd; font:14px/1.7 -apple-system,"PingFang SC",sans-serif; }
+  #log { padding:16px; white-space:pre-wrap; }
+  .hi { color:#ffd166; }
+  .bad { color:#ff8a7a; }
+</style>
+</head>
+<body>
+<!-- 启动引导用的占位元素：正式工程里这些是首页的按钮和面板，逻辑核心包只保留 id，不画界面 -->
+<div id="boot" style="position:absolute;left:-9999px;top:-9999px" aria-hidden="true">
+  <div id="lobby"></div>
+  <div id="lobby-name-row"></div>
+  <input id="lobby-name">
+  <button id="lobby-join"></button>
+  <div id="lobby-status"></div>
+  <div id="lobby-seats"></div>
+  <div id="lobby-actions"></div>
+  <button id="lobby-back"></button>
+  <button id="btn-single"></button>
+  <button id="btn-lan"></button>
+  <div id="result"></div>
+  <div id="result-card"></div>
+</div>
+<div id="log">启动中…</div>
+<script type="module" src="./demo.js"></script>
+</body>
+</html>

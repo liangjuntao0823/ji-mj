@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#04130f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>监利红中 · 横屏版</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='6' width='56' height='52' rx='9' fill='%23f7f1e2' stroke='%23c9bfa6' stroke-width='2'/%3E%3Ctext x='32' y='44' font-size='34' font-family='serif' font-weight='700' text-anchor='middle' fill='%23c0392b'%3E中%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/ui.css">
+</head>
+<body>
+<div id="app">
+  <div id="scaler">
+    <div id="stage">
+
+      <!-- ===== 视图：首页 ===== -->
+      <section class="view is-on" id="view-home">
+        <div class="home-bg"></div>
+        <div class="home-frame"></div>
+        <div class="home-watermark" aria-hidden="true">中</div>
+
+        <div class="home-left">
+          <div class="home-eyebrow">湖北 · 监利 · 红中皮子</div>
+          <h1 class="home-title">监利红中<em>MAHJONG</em></h1>
+          <p class="home-desc">
+            112 张牌，<b>红中当皮必打</b>，<b>只许自摸</b>，碰杠四档算分。
+            一桌四人，八局定输赢。
+          </p>
+          <div class="home-tiles" id="home-tiles"></div>
+        </div>
+
+        <div class="home-right">
+          <div class="home-menu">
+            <div class="home-menu-label">开始一桌</div>
+
+            <button class="menu-btn primary" id="btn-single">
+              <span class="mb-icon">
+                <svg viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="11" rx="3"/><path d="M9 13.5h.01M15 13.5h.01"/><path d="M12 8V5"/><circle cx="12" cy="4" r="1"/><path d="M4 12.5H2.5M21.5 12.5H20"/></svg>
+              </span>
+              <span>
+                <span class="mb-main">单机对局</span>
+                <span class="mb-sub">我 + 三台机器人 · 八局一场</span>
+              </span>
+            </button>
+
+            <button class="menu-btn" id="btn-lan">
+              <span class="mb-icon">
+                <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 16 0"/><path d="M7.5 15a5 5 0 0 1 9 0"/><circle cx="12" cy="18" r="1.4"/></svg>
+              </span>
+              <span>
+                <span class="mb-main">联机房间</span>
+                <span class="mb-sub">同一 WiFi，打开同一网址即可入座</span>
+              </span>
+            </button>
+
+            <button class="menu-btn" id="home-p2p">
+              <span class="mb-icon">
+                <svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>
+              </span>
+              <span>
+                <span class="mb-main">手机建房</span>
+                <span class="mb-sub">同一 WiFi 直连 · 掉线自动重连</span>
+              </span>
+            </button>
+
+            <div class="menu-foot">
+              <button class="rule-link" id="home-rules">规则与番型</button>
+              <div class="toggles">
+                <button class="icon-btn" id="home-voice" title="声音开关" aria-label="声音开关">
+                  <svg viewBox="0 0 24 24"><path d="M4 9.5h3l4-3.5v11L7 14.5H4z"/><path d="M15.5 8.5a4.4 4.4 0 0 1 0 7" class="v-wave"/></svg>
+                </button>
+                <button class="icon-btn" id="home-full" title="全屏" aria-label="全屏">
+                  <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 15v5h-5M20 9V4h-5M4 15v5h5"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="rules-strip">
+            <div><b>112</b><span>张牌</span></div>
+            <div><b>8</b><span>局一场</span></div>
+            <div><b>自摸</b><span>只能自摸</span></div>
+            <div><b>×8</b><span>红中份子上限</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 视图：牌桌 ===== -->
+      <section class="view" id="view-table">
+        <div class="table-rail"></div>
+        <div class="felt"></div>
+
+        <header class="hud">
+          <div class="hud-left">
+            <div class="chip">第 <b id="hud-round">1/8</b> 局</div>
+            <div class="chip" id="hud-dealer">庄 · 东</div>
+            <div class="chip">余 <b id="hud-wall">112</b> 张</div>
+          </div>
+          <div class="hud-mid">
+            <div class="mode-tag" id="mode-tag">单机对局</div>
+            <div class="room-chip" id="room-chip">房号 <b id="room-code"></b></div>
+          </div>
+          <div class="hud-right">
+            <button class="icon-btn" id="btn-board" title="记分板" aria-label="记分板">
+              <svg viewBox="0 0 24 24"><path d="M5 4h14M7 4v7a5 5 0 0 0 10 0V4M7 20h10M12 16v4"/></svg>
+            </button>
+            <button class="icon-btn" id="btn-voice" title="声音开关" aria-label="声音开关">
+              <svg viewBox="0 0 24 24"><path d="M4 9.5h3l4-3.5v11L7 14.5H4z"/><path d="M15.5 8.5a4.4 4.4 0 0 1 0 7" class="v-wave"/></svg>
+            </button>
+            <button class="icon-btn" id="btn-full" title="全屏" aria-label="全屏">
+              <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 15v5h-5M20 9V4h-5M4 15v5h5"/></svg>
+            </button>
+            <button class="icon-btn danger" id="btn-exit" title="退出牌桌" aria-label="退出牌桌">
+              <svg viewBox="0 0 24 24"><path d="M14 5h5v14h-5M13 12H4M7 8l-3 4 3 4"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="seat">
+          <div class="plate plate-top" id="plate-top"></div>
+          <div class="backs backs-top" id="backs-top"></div>
+          <div class="melds melds-top" id="melds-top"></div>
+          <div class="public-tile public-top" id="pub-top"></div>
+
+          <div class="plate plate-left" id="plate-left"></div>
+          <div class="backs backs-left" id="backs-left"></div>
+          <div class="melds melds-left" id="melds-left"></div>
+          <div class="public-tile public-left" id="pub-left"></div>
+
+          <div class="plate plate-right" id="plate-right"></div>
+          <div class="backs backs-right" id="backs-right"></div>
+          <div class="melds melds-right" id="melds-right"></div>
+          <div class="public-tile public-right" id="pub-right"></div>
+        </div>
+
+        <div class="river-box">
+          <div class="river river-top" id="river-top"></div>
+          <div class="river river-bottom" id="river-bottom"></div>
+          <div class="river river-left" id="river-left"></div>
+          <div class="river river-right" id="river-right"></div>
+
+          <div class="wall-badge">
+            <span class="seat-arrow arrow-top" id="arrow-top"></span>
+            <span class="seat-arrow arrow-right" id="arrow-right"></span>
+            <span class="seat-arrow arrow-bottom" id="arrow-bottom"></span>
+            <span class="seat-arrow arrow-left" id="arrow-left"></span>
+            <div class="center-timer" id="center-timer"></div>
+            <div class="gang-cover" id="gang-cover"></div>
+          </div>
+        </div>
+
+        <div class="seat">
+          <div class="plate plate-me" id="plate-me"></div>
+        </div>
+
+        <div class="hand-wrap" id="hand-wrap">
+          <div class="melds melds-me" id="melds-me"></div>
+          <div class="hand" id="my-hand"></div>
+        </div>
+        <div class="hand-hint is-off" id="hand-hint"></div>
+
+        <div class="declare-zone" id="declare-zone"></div>
+        <div class="ting-panel" id="ting-panel"></div>
+        <div class="actions" id="actions"></div>
+      </section>
+
+      <!-- ===== 视图：联机大厅（net.js / p2p.js 会读写这些元素） ===== -->
+      <section id="lobby">
+        <div class="lobby-card">
+          <div class="lobby-title">联机房间</div>
+          <div class="lobby-sub">同一个 WiFi 打开同一网址即可入座 · 房主开局</div>
+          <div class="lobby-name-row" id="lobby-name-row">
+            <input id="lobby-name" maxlength="8" placeholder="你的名字（重连要用同一个）" autocomplete="off">
+            <button class="big-btn" id="lobby-join">加入房间</button>
+          </div>
+          <div class="lobby-seats" id="lobby-seats"></div>
+          <div class="lobby-actions" id="lobby-actions"></div>
+          <div class="lobby-status" id="lobby-status"></div>
+          <button class="lobby-back" id="lobby-back">返回首页</button>
+        </div>
+      </section>
+
+      <!-- ===== 结算 ===== -->
+      <div id="result"><div id="result-card"></div></div>
+
+      <!-- ===== 记分板 ===== -->
+      <div id="board"></div>
+
+      <!-- ===== 掉线暂停 ===== -->
+      <div id="paused">
+        <div class="pause-card">
+          <div class="pause-title">对局暂停</div>
+          <div class="pause-text" id="pause-text">等待玩家重连…</div>
+          <div class="pause-spin"></div>
+        </div>
+      </div>
+
+      <!-- ===== 等待下一局 ===== -->
+      <div id="ready-bar"></div>
+
+      <!-- ===== 提示 ===== -->
+      <div id="toast"></div>
+
+      <!-- ===== 规则 ===== -->
+      <div id="rules-modal">
+        <div class="rules-card">
+          <h3>监利红中 · 规则与番型</h3>
+          <div class="rules-lead">112 张牌 · 只许自摸 · 红中当皮必打</div>
+          <div class="rules-grid">
+            <div class="rules-block">
+              <h4>牌张与座次</h4>
+              <p>万 / 筒 / 条各 1–9 每种 4 张，加 <b>4 张红中</b>，共 112 张。</p>
+              <p>庄家起手 14 张，其余 13 张；庄家先打，按东→南→西→北轮转。</p>
+            </div>
+            <div class="rules-block">
+              <h4>红中 = 皮子</h4>
+              <p>摸到红中<b>不能留手</b>，直接打出并从尾牌补一张。</p>
+              <p>手上带红中<b>不能胡</b>；红中打出张数决定份子倍数，最高 ×8。</p>
+              <p>一家打满 4 张红中，按暗杠记 <b>15 分</b>。</p>
+            </div>
+            <div class="rules-block">
+              <h4>碰与四种杠</h4>
+              <p>碰：无分。明杠（点杠）每付 <b>10</b> 分；暗杠每付 <b>15</b>；回头笑每付 <b>5</b>。</p>
+              <p>杠后从尾牌补一张；补的牌自摸算 <b>杠上开花 +0.5</b>。</p>
+              <p>杠分不在局中加减，<b>胡牌或流局时统一结算</b>。</p>
+            </div>
+            <div class="rules-block">
+              <h4>番型（倍数相加）</h4>
+              <p>屁胡 1 · 对子胡 3 · 七对 4 · 豪华七对 8 · 清八对 8 · 豪华清八对 10 · 十八罗汉 10 · 裸奔 7。</p>
+              <p>明活带 3 · 暗活带 5 · 清一色 4 · 天胡 5 · 地胡 5 · 报听 3。</p>
+              <p>加番：清摸球 +0.5 · 杠上开花 +0.5 · 海底捞月 +0.5。</p>
+            </div>
+            <div class="rules-block">
+              <h4>算分</h4>
+              <p>基础分 = 10 × 总倍数；某家应付 = 基础分 ×（1+赢家红中数）×（1+付家红中数）。</p>
+              <p>只许自摸，<b>三家各付</b>；任何一局加减总和为 0。</p>
+            </div>
+            <div class="rules-block">
+              <h4>流程与时限</h4>
+              <p>出牌 30 秒、碰杠应答 30 秒，超时自动出牌 / 自动过。</p>
+              <p>牌墙摸完流局，庄家不变，杠分照结；一场 <b>8 局</b>，打完出排名。</p>
+              <p>联机时四人齐点「下一局」才继续；整场结束四人齐点才重开。</p>
+            </div>
+            <div class="rules-block rules-wide">
+              <h4>联机与断线重连</h4>
+              <p>名字必填：局域网第一个进房的是<b>房主（东家）</b>，人不满开局时空位自动补机器人；手机 P2P 由房主建房出 <b>6 位房号</b>，朋友填名字 + 房号加入。</p>
+              <p>P2P 先直连，跨省 / 对称 NAT 连不上会自动走 <b>Cloudflare TURN 中继</b>（实时换短期凭证）。</p>
+              <p>有人掉线（局域网 12 秒无心跳 / P2P 连接断开）→ <b>全场暂停</b>：倒计时冻结、机器人停手、自动弹记分板并提示「XX 掉线，等待重连」。</p>
+              <p>重连：<b>同一个名字 + 同一个房号</b>回来就坐原座位、手牌原样继续（局域网刷新页面也能直接回座）；名字或房号不对会被当成新人。</p>
+              <p>打满 8 局 → 排名表；<b>所有真人各点一次「再来一场」</b>才开新一场，分数和胡局/番数清零。</p>
+            </div>
+          </div>
+          <button class="rules-close" id="rules-close">知道了</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="rotate-hint">
+    <div>
+      <div class="rot-icon"></div>
+      请把手机横过来<br><span style="font-size:14px;opacity:.6">本桌为横屏对局</span>
+    </div>
+  </div>
+</div>
+
+<!-- PeerJS：手机点对点建房用，需在模块脚本之前加载（挂 window.Peer） -->
+<script src="js/vendor/peerjs.min.js"></script>
+<script type="module" src="js/game.js"></script>
+</body>
+</html>

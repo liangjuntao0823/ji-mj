@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8"><title>牌图自检</title></head><body>
+<div id="out">检查中…</div>
+<script type="module">
+import { TILE_SRC } from '../js/tileArt.js';
+import { tileImage, tileSrc } from '../js/tiles.js';
+const rows = [];
+const bad = [];
+for (const k of Object.keys(TILE_SRC)) {
+  const url = TILE_SRC[k];
+  const ok = await new Promise((res) => { const im = new Image(); im.onload = () => res(im.width > 0); im.onerror = () => res(false); im.src = url; });
+  rows.push(`${k} → ${ok ? '✓' : '✗'} ${url.split('/').slice(-1)[0]}`);
+  if (!ok) bad.push(k);
+}
+const mapped = [0, 8, 9, 17, 18, 26, 27].map((r) => `${r}=${tileImage(r)}`);
+window.__ART_OK = bad.length === 0 && Object.keys(TILE_SRC).length === 28;
+document.getElementById('out').innerHTML = `<p>${window.__ART_OK ? '28/28 牌图全部加载成功' : '有问题: ' + bad.join(',')}</p><p>raw 映射: ${mapped.join(' ')}</p>` + rows.join('<br>');
+</script></body></html>
