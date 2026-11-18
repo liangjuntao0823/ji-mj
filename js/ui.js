@@ -1283,8 +1283,8 @@ function bindAll() {
   if (p2p) p2p.addEventListener('click', () => {
     sfx('tap');
     const g = window.JianliGame;
-    if (g && typeof g.openNetwork === 'function') { closeOverlays(); g.openNetwork(); }
-    else if (g && typeof g.openP2P === 'function') { closeOverlays(); g.openP2P(); }
+    if (g && typeof g.openNetwork === 'function') { closeOverlays(); g.openNetwork('join'); }
+    else if (g && typeof g.openP2P === 'function') { closeOverlays(); g.openP2P('join'); }
   });
   const rules = $('home-rules');
   if (rules) rules.addEventListener('click', () => { sfx('tap'); const m = $('rules-modal'); if (m) m.classList.add('show'); });

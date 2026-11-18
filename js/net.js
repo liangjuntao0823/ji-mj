@@ -6,6 +6,7 @@ const NET = {
   seat: 0,
   token: null,
   name: '',
+  entryMode: 'join',
   version: -1,
   snap: null,
   started: false,
@@ -39,7 +40,8 @@ function clearToken() {
 
 /* ---------------- 入口 ---------------- */
 
-export function openLAN(serverBase) {
+export function openLAN(serverBase, mode = 'join') {
+  NET.entryMode = mode === 'create' ? 'create' : 'join';
   window.__lobbyBack = exitLAN;
 
   if (typeof serverBase === 'string') {
@@ -61,12 +63,22 @@ export function openLAN(serverBase) {
   } catch (e) {}
 
   el('lobby').classList.add('show');
+  const staleP2P = el('p2p-box');
+  if (staleP2P) staleP2P.remove();
+  const staleCode = el('p2p-code-show');
+  if (staleCode) staleCode.remove();
+  el('lobby-name-row').style.display = NET.token ? 'none' : 'flex';
   const title = document.querySelector('.lobby-title');
   const sub = document.querySelector('.lobby-sub');
-  if (title) title.textContent = BASE ? '公网联机' : '联机房间';
+  const create = NET.entryMode === 'create';
+  if (title) title.textContent = BASE ? (create ? '创建公网房间' : '加入公网房间') : (create ? '创建联机房间' : '加入联机房间');
   if (sub) sub.textContent = BASE
-    ? '公网服务器 · 不同网络也能进 · 第一人当房主'
-    : '同一个 WiFi 打开同一网址即可入座 · 房主开局';
+    ? (create ? '公网服务器 · 第一人自动当房主 · 开局后空位补机器人' : '公网服务器 · 输入名字，加入当前公共房间')
+    : (create ? '同一个 WiFi · 第一人当房主 · 开局后空位补机器人' : '同一个 WiFi · 输入名字，加入当前房间');
+  const joinBtn = el('lobby-join');
+  if (joinBtn) joinBtn.textContent = create ? '创建房间' : '加入房间';
+  const nameInput = el('lobby-name');
+  if (nameInput) nameInput.placeholder = '你的名字（重连要用同一个）';
   el('lobby-name').value = NET.name || localStorage.getItem('jianli_name') || '';
   if (NET.token) {
     pollOnce().then(() => { if (NET.token) startPolling(); });

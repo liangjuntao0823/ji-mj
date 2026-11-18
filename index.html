@@ -24,7 +24,7 @@
 
         <div class="home-left">
           <div class="home-eyebrow">湖北 · 监利 · 红中皮子</div>
-          <div class="home-version" id="home-version">v1.0.8</div>
+          <div class="home-version" id="home-version">v1.0.9</div>
           <h1 class="home-title">监利红中<em>MAHJONG</em></h1>
           <p class="home-desc">
             112 张牌，<b>红中当皮必打</b>，<b>只许自摸</b>，碰杠四档算分。
@@ -58,8 +58,8 @@
                 <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 16 0"/><path d="M7.5 15a5 5 0 0 1 9 0"/><circle cx="12" cy="18" r="1.4"/></svg>
               </span>
               <span>
-                <span class="mb-main" id="lan-main">联机房间</span>
-                <span class="mb-sub" id="lan-sub">手机直连 · 输入房号加入</span>
+                <span class="mb-main" id="lan-main">创建房间</span>
+                <span class="mb-sub" id="lan-sub">手机直连 · 自己当房主</span>
               </span>
             </button>
 
@@ -68,8 +68,8 @@
                 <svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>
               </span>
               <span>
-                <span class="mb-main" id="p2p-main">手机建房</span>
-                <span class="mb-sub" id="p2p-sub">手机直连 · 创建房间</span>
+                <span class="mb-main" id="p2p-main">加入房间</span>
+                <span class="mb-sub" id="p2p-sub">手机直连 · 输入 6 位房号</span>
               </span>
             </button>
 
@@ -180,7 +180,11 @@
       <!-- ===== 视图：联机大厅（net.js / p2p.js 会读写这些元素） ===== -->
       <section id="lobby">
         <div class="lobby-card">
-          <div class="lobby-title">联机房间</div>
+          <div class="lobby-head">
+            <button class="lobby-back" id="lobby-back">← 返回首页</button>
+            <div class="lobby-title">联机房间</div>
+            <span class="lobby-head-spacer" aria-hidden="true"></span>
+          </div>
           <div class="lobby-sub">同一个 WiFi 打开同一网址即可入座 · 房主开局</div>
           <div class="lobby-name-row" id="lobby-name-row">
             <input id="lobby-name" maxlength="8" placeholder="你的名字（重连要用同一个）" autocomplete="off">
@@ -189,7 +193,6 @@
           <div class="lobby-seats" id="lobby-seats"></div>
           <div class="lobby-actions" id="lobby-actions"></div>
           <div class="lobby-status" id="lobby-status"></div>
-          <button class="lobby-back" id="lobby-back">返回首页</button>
         </div>
       </section>
 

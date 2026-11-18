@@ -53,25 +53,15 @@ function paintNetMode() {
     b.classList.toggle('is-on', on);
     b.setAttribute('aria-selected', on ? 'true' : 'false');
   });
-  const lanMain = el('lan-main');
-  const lanSub = el('lan-sub');
-  const p2pMain = el('p2p-main');
-  const p2pSub = el('p2p-sub');
+  const createSub = el('lan-sub');
+  const joinSub = el('p2p-sub');
   if (NET_MODE === 'server') {
-    if (lanMain) lanMain.textContent = '公网房间';
-    if (lanSub) lanSub.textContent = '公网服务器 · 不同网络也能进';
-    if (p2pMain) p2pMain.textContent = '公网建房';
-    if (p2pSub) p2pSub.textContent = '公网服务器 · 第一人当房主';
+    if (createSub) createSub.textContent = '公网服务器 · 第一人当房主';
+    if (joinSub) joinSub.textContent = '公网服务器 · 进当前房间';
   } else {
-    if (lanMain) lanMain.textContent = '联机房间';
-    if (lanSub) lanSub.textContent = '手机直连 · 输入房号加入';
-    if (p2pMain) p2pMain.textContent = '手机建房';
-    if (p2pSub) p2pSub.textContent = '手机直连 · 创建房间';
+    if (createSub) createSub.textContent = '手机直连 · 自己当房主';
+    if (joinSub) joinSub.textContent = '手机直连 · 输入 6 位房号';
   }
-  const lanBtn = el('btn-lan');
-  const p2pBtn = el('home-p2p');
-  if (lanBtn) lanBtn.classList.toggle('net-active', NET_MODE === 'server');
-  if (p2pBtn) p2pBtn.classList.toggle('net-active', NET_MODE === 'p2p');
 }
 
 function setNetMode(mode) {
@@ -80,16 +70,18 @@ function setNetMode(mode) {
   paintNetMode();
 }
 
-function openNetwork() {
+/* action: 'create' 开一桌当房主；'join' 进别人的房间 */
+function openNetwork(action = 'join') {
+  const mode = action === 'create' ? 'create' : 'join';
   if (NET_MODE === 'server') {
     if (!SERVER_URL) {
       showToast('公网服务器地址还没配置');
       return;
     }
-    openLAN(SERVER_URL);
+    openLAN(SERVER_URL, mode);
     return;
   }
-  openP2P();
+  openP2P(mode);
 }
 
 paintNetMode();
@@ -104,7 +96,7 @@ on('lobby-back', () => {
 });
 
 on('btn-single', startSingle);
-on('btn-lan', openNetwork);
+on('btn-lan', () => openNetwork('create'));
 
 function startSingle() {
   const seed = (Date.now() & 0xffffffff) >>> 0;

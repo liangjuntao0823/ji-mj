@@ -62,6 +62,7 @@ function peerOptions() {
 
 const P = {
   role: null,          // 'host' | 'guest'
+  entryMode: 'create',
   code: '',
   name: '',
   seat: 0,
@@ -103,11 +104,14 @@ function makeCode() {
 
 /* ---------------- 大厅 UI ---------------- */
 
-function buildEntryUI() {
+function buildEntryUI(mode = 'create') {
+  const isJoin = mode === 'join';
   el('lobby').classList.add('show');
   el('lobby-name-row').style.display = 'none';
-  document.querySelector('.lobby-title').textContent = '手机直连';
-  document.querySelector('.lobby-sub').textContent = '不同网络也能连：一个人开房，其他人输 6 位房号加入';
+  document.querySelector('.lobby-title').textContent = isJoin ? '加入房间' : '创建房间';
+  document.querySelector('.lobby-sub').textContent = isJoin
+    ? '手机直连 · 输入房主给你的 6 位房号'
+    : '手机直连 · 自己当房主，开局后空位补机器人';
 
   let box = el('p2p-box');
   if (!box) {
@@ -119,19 +123,22 @@ function buildEntryUI() {
   box.innerHTML = `
     <div id="p2p-entry">
       <input id="p2p-name" maxlength="8" placeholder="你的名字" autocomplete="off">
-      <button class="big-btn" id="p2p-create">创建房间</button>
-      <div class="p2p-or">或者加入别人的房间</div>
+      ${isJoin ? `
       <div class="p2p-join-row">
-        <input id="p2p-code" maxlength="6" placeholder="房号" autocomplete="off" spellcheck="false">
-        <button class="big-btn ghost" id="p2p-join">加入</button>
-      </div>
+        <input id="p2p-code" maxlength="6" placeholder="6 位房号" autocomplete="off" spellcheck="false">
+        <button class="big-btn ghost" id="p2p-join">加入房间</button>
+      </div>` : `
+      <button class="big-btn" id="p2p-create">创建房间</button>`}
     </div>
     <div id="p2p-code-show" class="hidden"></div>
   `;
   el('p2p-name').value = P.name || localStorage.getItem('jianli_name') || '';
-  el('p2p-create').onclick = () => createRoom();
-  el('p2p-join').onclick = () => joinRoom();
-  el('p2p-code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+  const createBtn = el('p2p-create');
+  if (createBtn) createBtn.onclick = () => createRoom();
+  const joinBtn = el('p2p-join');
+  if (joinBtn) joinBtn.onclick = () => joinRoom();
+  const codeInput = el('p2p-code');
+  if (codeInput) codeInput.addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
   el('lobby-actions').innerHTML = '';
   el('lobby-seats').innerHTML = '';
   status('');
@@ -613,8 +620,10 @@ function hostPush(force = false) {
 
 async function joinRoom() {
   if (!window.Peer) { status('联机组件没加载，刷新一下页面'); return; }
-  const code = (el('p2p-code').value || '').trim().toUpperCase();
-  if (code.length !== 6) { status('请输入 6 位房号'); el('p2p-code').focus(); return; }
+  const codeInput = el('p2p-code');
+  if (!codeInput) { status('请从首页「加入房间」进入'); return; }
+  const code = (codeInput.value || '').trim().toUpperCase();
+  if (code.length !== 6) { status('请输入 6 位房号'); codeInput.focus(); return; }
   if (!readName()) return;
   await ensureIce();
   P.role = 'guest';
@@ -882,6 +891,10 @@ function exitP2P() {
   setRoomCode(null);
   backToHome();
   el('lobby').classList.remove('show');
+  const entryBox = el('p2p-box');
+  if (entryBox) entryBox.remove();
+  const codeShow = el('p2p-code-show');
+  if (codeShow) codeShow.remove();
   reset();
   if (window.__lobbyBack === exitP2P) window.__lobbyBack = null;
 }
@@ -993,10 +1006,11 @@ function errText(e) {
   return t || (e.message || '未知错误');
 }
 
-export function openP2P() {
+export function openP2P(mode = 'create') {
   window.__lobbyBack = exitP2P;
   if (P.role) { el('lobby').classList.add('show'); return; }
-  buildEntryUI();
+  P.entryMode = mode === 'join' ? 'join' : 'create';
+  buildEntryUI(P.entryMode);
 }
 
 window.P2P = { open: openP2P, _state: () => P };
