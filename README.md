@@ -5,7 +5,7 @@
 
 ## 0. 在线版
 
-- 网址：<https://jianli-majiang.pages.dev/>
+- 网址：<https://jianli-majiang.pages.dev/?v=107>
 - 备用（手机网络打不开 pages.dev 时）：<https://liangjuntao0823.github.io/ji-mj/?v=107>
 - 仓库：<https://github.com/liangjuntao0823/ji-mj>（公开）
 - Cloudflare Pages：项目 `jianli-majiang` 为 Direct Upload（拖拽上传 `index.html` 发布），不接 Git 自动构建；源码与单文件成品在 `ji-mj`，每次改版先推仓库，再把 `监利红中-横屏版.html` 复制为 `index.html` 上传到该项目。
