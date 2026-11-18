@@ -299,7 +299,10 @@ export class Engine {
     p.hand.splice(idx, 1);
     s.lastDrawn = null;
     if (s.mustDiscard === seat) s.mustDiscard = null;
-    if (raw !== RED_RAW) { p.river.push(raw); s.lastDiscard = { seat, tile: raw }; }
+    if (raw !== RED_RAW) p.river.push(raw);
+    p.discardCount += 1;
+    /* 每次出牌都更新 lastDiscard（红中也算），联机各端据此播报，不只房主 */
+    s.lastDiscard = { seat, tile: raw, seq: p.discardCount };
     if (p.declareIntent) {
       const w = waitingTiles(p.hand, 0, this.rule.allowSevenPairs);
       p.declared = true; p.declareWaits = w.slice(); p.declareIntent = false;

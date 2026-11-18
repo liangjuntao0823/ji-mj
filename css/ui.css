@@ -31,20 +31,22 @@
 
 html, body {
   margin: 0; padding: 0; height: 100%; overflow: hidden;
-  background: #030c0a;
+  background: #04130f;
   color: var(--ink);
   font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Source Han Sans SC", sans-serif;
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
 
-#app { position: fixed; inset: 0; overflow: hidden; background: #030c0a; }
+/* Safari“添加到主屏幕”后是独立窗口，inset:0 的布局视口可能比实际可视区大，
+   会造成底部黑边、整体上缩。尺寸改由 applyLayoutUnits() 按真实视口像素写入。 */
+#app { position: fixed; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; background: #04130f; }
 /* 手机竖屏锁定时，整页旋转成横屏；不要求用户解除竖屏锁定 */
 #app.is-rotate {
   inset: auto;
-  left: 50%; top: 50%;
+  left: 0; top: 0;
   width: 100vh; height: 100vw;
-  transform: translate(-50%, -50%) rotate(90deg);
+  transform: rotate(90deg);
   transform-origin: center center;
 }
 
@@ -1193,3 +1195,41 @@ img { -webkit-user-drag: none; user-select: none; }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* ===== v1.0.1 可读性调整 ===== */
+.hud-right { gap: 10px; }
+.hud-right .icon-btn { width: 48px; height: 48px; border-radius: 15px; }
+.hud-right .icon-btn svg { width: 24px; height: 24px; }
+
+#result-card {
+  width: 940px; max-width: calc(100vw - 72px); max-height: 764px;
+  padding: 30px 38px 26px;
+}
+.result-title { font-size: 40px; letter-spacing: 6px; }
+.result-sub { margin-top: 10px; font-size: 16px; }
+.result-table th, .result-table td { padding: 13px 10px; font-size: 18px; }
+.result-table th { font-size: 15px; }
+.result-table td.name { padding-left: 22px; }
+.round-board { grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+.rb-cell { padding: 14px 8px 12px; gap: 4px; border-radius: 14px; }
+.rb-name { font-size: 16px; }
+.rb-hu { font-size: 12px; padding: 4px 7px; }
+.rb-fen { font-size: 28px; }
+.rb-fen em { font-size: 13px; }
+.rb-oil { font-size: 12px; }
+.rb-total { font-size: 14px; }
+.result-actions { margin-top: 20px; }
+.result-actions .big-btn { height: 50px; font-size: 17px; }
+
+.board-card { width: 720px; padding: 30px 36px 26px; }
+.board-title { font-size: 38px; }
+.board-sub { font-size: 15px; }
+.board-rows { margin-top: 20px; gap: 10px; }
+.board-row {
+  grid-template-columns: 40px 1fr 104px 90px 116px;
+  padding: 14px 16px; font-size: 20px;
+}
+.board-row .idx { font-size: 18px; }
+.board-row .bwind { font-size: 15px; }
+.board-row .bstat { font-size: 15px; }
+.board-row .bscore { font-size: 21px; }

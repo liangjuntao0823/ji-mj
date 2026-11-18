@@ -55,6 +55,10 @@ const UI = {
   paused: false,
   lock: false,
   roomCode: '',
+  voiceRound: 0,
+  voiceKey: '',
+  voiceMelds: ['', '', '', ''],
+  voiceResult: '',
 };
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -168,6 +172,10 @@ export function initTable(opts) {
   G.selected = null;
   G.timerFill = null;
   G.voicePrimed = false;
+  UI.voiceRound = 0;
+  UI.voiceKey = '';
+  UI.voiceMelds = ['', '', '', ''];
+  UI.voiceResult = '';
   UI.result = null; UI.boardOpen = false; UI.paused = false;
   UI.matchStats = { wins: [0, 0, 0, 0], fan: [0, 0, 0, 0] };
   UI.statRound = -1;
@@ -292,6 +300,7 @@ function drawTable(s) {
   drawHint(s);
   drawTing(s);
   updateTimerDom();
+  announceState(s);
 }
 
 function plateHtml(s, seat, p) {
@@ -944,8 +953,12 @@ function zoomSupported() {
 }
 
 export function applyLayoutUnits() {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  /* Safari 独立窗口里 clientHeight 有时只到工具栏上方，innerHeight 才是整屏；
+     两边取最大值，保证旋转后的 app 真正铺满屏幕，不在底部留黑边。 */
+  const root = D.documentElement;
+  const vv = window.visualViewport;
+  const vw = Math.round(Math.max(root.clientWidth || 0, window.innerWidth || 0, (vv && vv.width) || 0));
+  const vh = Math.round(Math.max(root.clientHeight || 0, window.innerHeight || 0, (vv && vv.height) || 0));
   /* 手机竖屏锁定也能直接横过来：把整个 app 旋转 90°，再按横屏尺寸排版。
      舞台尺寸 = 视口 / 缩放比，缩放后刚好铺满视口，宽屏不再留左右黑边。 */
   const portrait = !!(window.matchMedia && window.matchMedia('(orientation: portrait) and (max-width: 900px)').matches);
@@ -955,7 +968,24 @@ export function applyLayoutUnits() {
   const sc = $('scaler');
   const st = $('stage');
   const app = $('app');
-  if (app) app.classList.toggle('is-rotate', portrait);
+  if (app) {
+    app.classList.toggle('is-rotate', portrait);
+    /* 关键：旋转后 app 的宽 = 竖屏高度，高 = 竖屏宽度；显式写像素并居中，
+       避免 Safari 独立窗口下 100vh 与实际可视高度不一致造成的黑边/上缩。 */
+    if (portrait) {
+      app.style.width = `${vh}px`;
+      app.style.height = `${vw}px`;
+      app.style.left = `${(vw - vh) / 2}px`;
+      app.style.top = `${(vh - vw) / 2}px`;
+      app.style.transform = 'rotate(90deg)';
+    } else {
+      app.style.width = `${vw}px`;
+      app.style.height = `${vh}px`;
+      app.style.left = '0px';
+      app.style.top = '0px';
+      app.style.transform = 'none';
+    }
+  }
   if (sc && st) {
     st.style.width = `${W / s}px`;
     st.style.height = `${H / s}px`;
@@ -1023,6 +1053,139 @@ function syncVoice() {
   if (a) a.classList.toggle('is-off', !VOICE_ON);
   if (b) b.classList.toggle('is-off', !VOICE_ON);
 }
+
+/* ---------------- 语音播报（出牌 / 碰 / 杠 / 胡 / 流局） ----------------
+ * 播报只依赖“快照里的状态变化”，不依赖本地动作事件，
+ * 所以单机、局域网、P2P 的每个客户端都会各自播报，不会只有房主响。
+ */
+const SPEECH = (typeof window !== 'undefined' && 'speechSynthesis' in window) ? window.speechSynthesis : null;
+let speechVoice = null;
+let speechBusy = false;
+const speechQueue = [];
+
+function pickSpeechVoice() {
+  if (!SPEECH) return;
+  try {
+    const voices = SPEECH.getVoices() || [];
+    speechVoice = voices.find((v) => /^zh[-_]CN/i.test(v.lang))
+      || voices.find((v) => /zh|Chinese|中文/i.test((v.lang || '') + ' ' + (v.name || '')))
+      || null;
+  } catch (e) { speechVoice = null; }
+}
+
+function primeSpeech() {
+  G.voicePrimed = true;
+  pickSpeechVoice();
+  if (!SPEECH) return;
+  try {
+    const u = new SpeechSynthesisUtterance(' ');
+    u.volume = 0;
+    SPEECH.speak(u);
+    SPEECH.cancel();
+  } catch (e) {}
+}
+
+function speak(text) {
+  if (!VOICE_ON || !SPEECH || !text) return;
+  if (speechQueue.length > 8) speechQueue.shift();
+  speechQueue.push(text);
+  if (!speechBusy) drainSpeech();
+}
+
+function drainSpeech() {
+  if (!VOICE_ON || !SPEECH) { speechQueue.length = 0; speechBusy = false; return; }
+  const text = speechQueue.shift();
+  if (!text) { speechBusy = false; return; }
+  speechBusy = true;
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'zh-CN';
+    u.rate = 1.02;
+    u.pitch = 0.96;
+    if (!speechVoice) pickSpeechVoice();
+    if (speechVoice) u.voice = speechVoice;
+    u.onend = () => setTimeout(drainSpeech, 40);
+    u.onerror = () => setTimeout(drainSpeech, 40);
+    SPEECH.speak(u);
+  } catch (e) {
+    setTimeout(drainSpeech, 40);
+  }
+}
+
+if (SPEECH) {
+  pickSpeechVoice();
+  if (SPEECH.addEventListener) SPEECH.addEventListener('voiceschanged', pickSpeechVoice);
+}
+D.addEventListener('pointerdown', () => { if (!G.voicePrimed) primeSpeech(); }, { once: true });
+D.addEventListener('touchstart', () => { if (!G.voicePrimed) primeSpeech(); }, { once: true, passive: true });
+
+function voiceName(s, seat) {
+  const p = s && s.players && s.players[seat];
+  return (p && p.name) || (G.seatNames && G.seatNames[seat]) || (WIND[seat] + '家');
+}
+
+function announceState(s) {
+  if (!VOICE_ON || !s || !s.players) return;
+  const round = s.roundIndex || 1;
+  if (UI.voiceRound !== round) {
+    UI.voiceRound = round;
+    UI.voiceKey = '';
+    UI.voiceMelds = ['', '', '', ''];
+    UI.voiceResult = '';
+  }
+
+  /* 出牌：lastDiscard 每次出牌都会更新（红中也会），用座位+牌+该家出牌数去重 */
+  const ld = s.lastDiscard;
+  if (ld && ld.tile !== undefined && ld.tile !== null) {
+    const p = s.players[ld.seat];
+    const key = `${round}|${ld.seat}|${ld.tile}|${(p && p.discardCount) || 0}|${ld.seq || 0}`;
+    if (key !== UI.voiceKey) {
+      UI.voiceKey = key;
+      speak(`${voiceName(s, ld.seat)}，打${label(ld.tile)}`);
+    }
+  }
+
+  /* 碰 / 杠 / 回头笑：对比每家露牌的签名，新增或变化就播报 */
+  for (let seat = 0; seat < 4; seat++) {
+    const p = s.players[seat];
+    const melds = (p && p.melds) || [];
+    const sig = melds.map((m) => `${m.kind}:${m.tile}`).join('|');
+    const old = (UI.voiceMelds && UI.voiceMelds[seat]) || '';
+    if (sig !== old) {
+      if (!old) { UI.voiceMelds[seat] = sig; continue; }  /* 进桌时已有副露，不补播 */
+      const oldParts = old ? old.split('|') : [];
+      let changed = null;
+      for (let i = 0; i < melds.length; i++) {
+        const now = `${melds[i].kind}:${melds[i].tile}`;
+        if (now !== oldParts[i]) { changed = melds[i]; break; }
+      }
+      if (changed) {
+        const kind = changed.kind === 'peng' ? '碰'
+          : changed.kind === 'gangExposed' ? '明杠'
+            : changed.kind === 'gangConcealed' ? '暗杠'
+              : changed.kind === 'gangAdded' ? '回头笑' : '杠';
+        const t = label(changed.tile);
+        speak(kind === '碰' ? `${voiceName(s, seat)}，碰${t}` : `${voiceName(s, seat)}，${kind}${t}`);
+      }
+      UI.voiceMelds[seat] = sig;
+    }
+  }
+
+  /* 胡 / 流局：只在进入 finished 的那一次播 */
+  if (s.phase === 'finished') {
+    const resultKey = `${round}|${s.drawnGame ? 'draw' : (s.result && s.result.winner) || ''}`;
+    if (resultKey !== UI.voiceResult) {
+      UI.voiceResult = resultKey;
+      if (s.drawnGame) speak('流局');
+      else if (s.result && s.result.winner !== undefined) {
+        const winner = s.result.winner;
+        const fans = (s.result.fans || []).map((f) => (typeof f === 'string' ? f : f.name)).filter(Boolean).join('，');
+        speak(`${voiceName(s, winner)}，自摸${fans ? '，' + fans : ''}`);
+      }
+    }
+  }
+}
+
 
 /* ---------------- 音效（WebAudio 合成，无外部文件） ---------------- */
 
