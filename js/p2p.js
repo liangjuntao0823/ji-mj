@@ -65,6 +65,8 @@ const P = {
   role: null,          // 'host' | 'guest'
   hostOnly: false,     // 电脑开房：电脑只当主机，不占座位
   seatReady: false,
+  lastHostMsgAt: 0,
+  watchdogTimer: null,
   entryMode: 'create',
   code: '',
   name: '',
@@ -264,14 +266,15 @@ function pushToGuest(conn, seat) {
 /* 绑定一条玩家连接的事件；close 时只有这条连接仍是该座位的当前连接才降级为机器人 */
 /* 心跳：1 秒 ping 一次，10 秒没 pong 判掉线（手机切后台、直接关页面都能兜住） */
 function heartbeatGuests(now) {
-  for (const c of P.conns) {
+  for (const c of P.conns.slice()) {
     const p = P.players[c.seat];
     if (!p || p.isBot) continue;
-    if (c.lastPong && now - c.lastPong > 10000 && p.online) {
+    if (c.lastSeen && now - c.lastSeen > 10000 && p.online) {
       p.online = false;
       P.version++;
       P.lastKey = '';
       P.deadline = null;
+      try { c.conn.close(); } catch {}
     }
     if (!c.lastPingAt || now - c.lastPingAt > 1000) {
       c.lastPingAt = now;
@@ -314,7 +317,7 @@ function onGuest(conn) {
     P.conns = P.conns.filter((c) => c.seat !== seat);
     P.players[seat].online = true;
     P.players[seat].isBot = false;
-    P.conns.push({ conn, seat, lastPong: Date.now(), lastPingAt: 0 });
+    P.conns.push({ conn, seat, lastPong: Date.now(), lastSeen: Date.now(), lastPingAt: 0 });
     P.version++;
     P.lastKey = '';
     bindGuestConn(conn, seat, name);
@@ -339,7 +342,7 @@ function onGuest(conn) {
     return;
   }
   P.players[seat] = { name, isBot: false, online: true };
-  P.conns.push({ conn, seat });
+  P.conns.push({ conn, seat, lastSeen: Date.now() });
   P.version++;
   hostPeerSeq++;
 
@@ -358,6 +361,8 @@ function hostBroadcastLobby() {
 
 function hostMsg(conn, seat, msg) {
   if (!msg || typeof msg !== 'object') return;
+  const touch = P.conns.find((x) => x.conn === conn);
+  if (touch) touch.lastSeen = Date.now();
   if (msg.t === 'pong') {
     const c = P.conns.find((x) => x.conn === conn);
     if (c) {
@@ -516,6 +521,15 @@ function startLatencyLoop() {
     if (!P.hostConn || !P.hostConn.open) return;
     try { P.hostConn.send({ t: 'gping', ts: Date.now() }); } catch (e) {}
   }, 1000);
+  if (P.watchdogTimer) clearInterval(P.watchdogTimer);
+  P.watchdogTimer = setInterval(() => {
+    if (P.role !== 'guest' || !P.hostConn || !P.hostConn.open) return;
+    if (P.lastHostMsgAt && Date.now() - P.lastHostMsgAt > 8000) {
+      P.lastHostMsgAt = Date.now();
+      status('房主连接超时，正在自动重连…');
+      guestReconnectNow();
+    }
+  }, 2000);
 }
 
 function startHostLoop() {
@@ -693,6 +707,13 @@ function guestConnect() {
   if (P.role !== 'guest' || !P.code) return;
   /* 连接代数：旧连接的回调一律丢弃，避免重连风暴 */
   const gen = (P.connGen = (P.connGen || 0) + 1);
+  clearTimeout(P.joinTimer);
+  P.hostConn = null;
+  /* 连接尝试超时：Peer 没报错也没 open 时不能干等 */
+  P.joinTimer = setTimeout(() => {
+    if (gen !== P.connGen || P.role !== 'guest') return;
+    if (!P.hostConn || !P.hostConn.open) guestRetry('连接超时');
+  }, 9000);
   const oldPeer = P.peer;
   P.peer = null;
   if (oldPeer) { try { oldPeer.destroy(); } catch {} }
@@ -711,6 +732,7 @@ function guestConnect() {
       clearTimeout(P.joinTimer);
       P.joinTimer = null;
       P.reconnectTry = 0;
+      P.lastHostMsgAt = Date.now();
       setPaused([], false);
       status('');
       if (!P.inGame) { setEntryVisible(false); showRoomCode(); renderGuestSeats(); }
@@ -719,7 +741,7 @@ function guestConnect() {
       clearInterval(P.handshakeTimer);
       let tries = 0;
       const greet = () => {
-        if (gen !== P.connGen || P.role !== 'guest' || P.seat > 0) {
+        if (gen !== P.connGen || P.role !== 'guest' || P.seatReady) {
           clearInterval(P.handshakeTimer);
           P.handshakeTimer = null;
           return;
@@ -738,16 +760,19 @@ function guestConnect() {
     conn.on('data', (msg) => { if (gen === P.connGen) guestMsg(msg); });
     conn.on('close', () => {
       if (gen !== P.connGen || P.role !== 'guest') return;
+      clearTimeout(P.joinTimer); P.joinTimer = null;
       guestRetry('房主那边断开了');
     });
     conn.on('error', () => {
       if (gen !== P.connGen || P.role !== 'guest') return;
+      clearTimeout(P.joinTimer); P.joinTimer = null;
       guestRetry('连接出错');
     });
   });
   peer.on('error', (e) => {
     if (gen !== P.connGen || P.role !== 'guest') return;
     const t = e && e.type;
+    clearTimeout(P.joinTimer); P.joinTimer = null;
     if (t === 'peer-unavailable') { guestRetry('房号还没上线'); return; }
     if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') { guestRetry(errText(e)); return; }
     status(errText(e));
@@ -789,6 +814,7 @@ window.__jianliReconnect = guestReconnectNow;
 
 function guestMsg(msg) {
   if (!msg || typeof msg !== 'object') return;
+  P.lastHostMsgAt = Date.now();
   if (msg.t === 'ping') {
     try { if (P.hostConn && P.hostConn.open) P.hostConn.send({ t: 'pong', ts: msg.ts }); } catch (e) {}
     return;
@@ -948,6 +974,7 @@ function nextHand() {
 
 function exitP2P() {
   if (P.latencyTimer) { clearInterval(P.latencyTimer); P.latencyTimer = null; }
+  if (P.watchdogTimer) { clearInterval(P.watchdogTimer); P.watchdogTimer = null; }
   clearNetLatency();
   const role = P.role;
   P.role = null;          // 先摘掉身份，避免主动退出时触发自动重连
@@ -973,6 +1000,7 @@ function exitP2P() {
 
 function reset() {
   if (P.latencyTimer) { clearInterval(P.latencyTimer); P.latencyTimer = null; }
+  if (P.watchdogTimer) { clearInterval(P.watchdogTimer); P.watchdogTimer = null; }
   clearNetLatency();
   clearInterval(P.loop);
   clearInterval(P.uiTimer);
@@ -984,7 +1012,7 @@ function reset() {
     engine: null, started: false, over: false, version: 0, deadline: null,
     lastKey: '', lastBotAt: 0, lastSentVersion: -1, snap: null, inGame: false,
     resultKey: '', lastPhase: '', lastStateVersion: -1, hostConn: null, loop: null, uiTimer: null, joinTimer: null,
-    clockOffset: 0, connGen: 0, reconnectTimer: null, reconnectTry: 0, handshakeTimer: null, latencyTimer: null,
+    clockOffset: 0, connGen: 0, reconnectTimer: null, reconnectTry: 0, handshakeTimer: null, latencyTimer: null, watchdogTimer: null, lastHostMsgAt: 0,
   });
 }
 
