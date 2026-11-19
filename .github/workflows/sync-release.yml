@@ -1,4 +1,4 @@
-name: sync-v1.1.7-release
+name: sync-v1.1.8-release
 on:
   push:
     paths:
@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download release payload
-        run: curl -fsSL https://aka.doubaocdn.com/s/VV6KKYsNmX -o /tmp/release.tar.gz
+        run: curl -fsSL https://aka.doubaocdn.com/s/m006SiNjNP -o /tmp/release.tar.gz
       - name: Apply payload
         run: |
           mkdir -p /tmp/payload
@@ -26,6 +26,6 @@ jobs:
           if git diff --cached --quiet; then
             echo 'no changes'
           else
-            git commit -m 'release: v1.1.7 联机延迟修复'
+            git commit -m 'release: v1.1.8 延迟显示与规则修复'
             git push
           fi
