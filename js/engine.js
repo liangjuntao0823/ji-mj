@@ -387,13 +387,22 @@ export class Engine {
 
     let out = [{ type: 'discarded', seat, tile: raw }, { type: 'wallRemaining', n: s.wall.remaining }];
 
-    // 声明窗口：只能碰、杠，不能吃、不能点炮胡
+    // 声明窗口：只能碰、杠，不能吃、不能点炮胡。报听后不可碰，只允许不散听且听口不变的杠。
     const options = {};
     for (let o = 0; o < 4; o++) {
       if (o === seat) continue;
-      const same = s.players[o].hand.filter((t) => t === raw).length;
-      if (same >= 3) options[o] = ['pass', 'peng', 'gang'];
-      else if (same === 2) options[o] = ['pass', 'peng'];
+      const op = s.players[o];
+      const same = op.hand.filter((t) => t === raw).length;
+      const opts = [];
+      if (!op.declared) {
+        if (same >= 2) opts.push('pass', 'peng');
+        if (same >= 3) opts.push('gang');
+      } else if (same >= 3) {
+        const nh = op.hand.slice();
+        for (let i = 0; i < 3; i++) nh.splice(nh.indexOf(raw), 1);
+        if (this.#canGangAfterDeclare(op, nh, op.melds.length + 1)) opts.push('pass', 'gang');
+      }
+      if (opts.length > 1) options[o] = opts;
     }
     if (Object.keys(options).length === 0) {
       out.push(...this.drawTurn(nextSeat(seat)));
@@ -437,6 +446,7 @@ export class Engine {
   #claimPeng(seat, pending) {
     const s = this.state;
     const p = s.players[seat];
+    if (p.declared) throw new EngineError('报听后不能碰');
     this.#removeTiles(pending.tile, 2, seat);
     p.melds.push({ kind: 'peng', tile: pending.tile });
     this.#removeFromRiver(pending.tile, pending.discarder);
@@ -461,7 +471,6 @@ export class Engine {
     this.#removeFromRiver(pending.tile, pending.discarder);
     const out = [{ type: 'gang', seat, kind: 'gangExposed', tile: pending.tile }];
     out.push(...this.#pay(this.rule.pointGangBase, seat, [pending.discarder], 'pointGang'));
-    this.#lockSingle(seat);
     if (s.finalMode || s.wall.remaining <= 4) out.push(...this.#beginFinal(s.finalStart ?? seat));
     else out.push(...this.drawTurn(seat, true, true));
     return out;
@@ -484,7 +493,6 @@ export class Engine {
     p.melds.push({ kind: 'gangConcealed', tile: raw });
     const out = [{ type: 'gang', seat, kind: 'gangConcealed', tile: raw }];
     out.push(...this.#pay(this.rule.concealedGangBase, seat, othersOf(seat), 'concealedGang'));
-    this.#lockSingle(seat);
     if (s.finalMode) out.push(...this.#advanceFinal());
     else if (s.wall.remaining <= 4) out.push(...this.#beginFinal(seat));
     else out.push(...this.drawTurn(seat, true, true));
@@ -499,11 +507,15 @@ export class Engine {
     const mi = p.melds.findIndex((m) => m.tile === raw && m.kind === 'peng');
     if (mi < 0) throw new EngineError('没有这张牌的碰');
     if (!p.hand.includes(raw)) throw new EngineError('手里没有第四张');
+    if (p.declared) {
+      const nh = p.hand.slice();
+      nh.splice(nh.indexOf(raw), 1);
+      this.#checkDeclaredGang(p, nh, p.melds.length);
+    }
     this.#removeTiles(raw, 1, seat);
     p.melds[mi].kind = 'gangAdded';
     const out = [{ type: 'gang', seat, kind: 'gangAdded', tile: raw }];
     out.push(...this.#pay(this.rule.addedGangBase, seat, othersOf(seat), 'addedGang'));
-    this.#lockSingle(seat);
     if (s.finalMode) out.push(...this.#advanceFinal());
     else if (s.wall.remaining <= 4) out.push(...this.#beginFinal(seat));
     else out.push(...this.drawTurn(seat, true, true));
@@ -820,13 +832,17 @@ export class Engine {
     return [{ type: 'declareIntent', seat }];
   }
 
-  /** 报听的人杠之前，杠完必须还听原来那几张牌，否则不允许 */
-  #checkDeclaredGang(p, afterHand, meldCount) {
-    if (!p.declared) return;
+  /** 报听后杠：杠完必须仍听牌，而且听口和报听时完全一样；散听/改口都不允许 */
+  #canGangAfterDeclare(p, afterHand, meldCount) {
+    if (!p.declared) return true;
     const waits = waitingTiles(afterHand, meldCount, this.rule.allowSevenPairs, 0, p.melds.filter((m) => m.kind === 'peng').length);
     const old = p.declareWaits || [];
-    const same = waits.length > 0 && waits.length === old.length && waits.every((t) => old.includes(t));
-    if (!same) throw new EngineError('这一杠会改口或不再听牌，报听时不能这么杠');
+    return waits.length > 0 && waits.length === old.length && waits.every((t) => old.includes(t));
+  }
+
+  #checkDeclaredGang(p, afterHand, meldCount) {
+    if (!p.declared) return;
+    if (!this.#canGangAfterDeclare(p, afterHand, meldCount)) throw new EngineError('这一杠会改口或不再听牌，报听时不能这么杠');
   }
 
   /** 四副露凑齐且手里正好剩一张：立刻亮牌锁定，之后不能换 */
@@ -849,9 +865,20 @@ export class Engine {
     if (this.canHu(seat)) out.push({ type: 'hu' });
     for (const kind of ALL_KINDS) {
       if (isPizi(kind)) continue;
-      if (p.hand.filter((t) => t === kind).length === 4) out.push({ type: 'gangConcealed', tile: kind });
+      if (p.hand.filter((t) => t === kind).length === 4) {
+        if (!p.declared) out.push({ type: 'gangConcealed', tile: kind });
+        else {
+          const nh = p.hand.slice();
+          for (let i = 0; i < 4; i++) nh.splice(nh.indexOf(kind), 1);
+          if (this.#canGangAfterDeclare(p, nh, p.melds.length + 1)) out.push({ type: 'gangConcealed', tile: kind });
+        }
+      }
       if (p.melds.some((m) => m.kind === 'peng' && m.tile === kind) && p.hand.includes(kind)) {
-        out.push({ type: 'gangAdded', tile: kind });
+        if (!p.declared) out.push({ type: 'gangAdded', tile: kind });
+        else {
+          const nh = p.hand.slice(); nh.splice(nh.indexOf(kind), 1);
+          if (this.#canGangAfterDeclare(p, nh, p.melds.length)) out.push({ type: 'gangAdded', tile: kind });
+        }
       }
     }
     if (s.phase === PHASE.FINALDRAW) out.push({ type: 'finalPass' });

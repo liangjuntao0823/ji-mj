@@ -4,7 +4,7 @@
 import { Engine, DEFAULT_RULE } from './engine.js';
 import { nextAction, discardCandidate } from './bot.js';
 import { isPizi } from './tiles.js';
-import { initTable, renderAll, updateTimer, showResult, hideResult, backToHome, updateReadyBar, setRoomCode, setPaused, showBoard, hideBoard } from './ui.js';
+import { initTable, renderAll, updateTimer, showResult, hideResult, backToHome, updateReadyBar, setRoomCode, setPaused, showBoard, hideBoard, setNetLatency, clearNetLatency } from './ui.js';
 
 const ROUNDS = 8;
 const HOST_PREFIX = 'jianli-mj-';
@@ -94,6 +94,7 @@ const P = {
   clockOffset: 0,      // 房主时钟 - 本机时钟（毫秒），用来对齐倒计时
   reconnectTimer: null,
   reconnectTry: 0,
+  latencyTimer: null,
   rule: { ...DEFAULT_RULE, rounds: ROUNDS },
 };
 
@@ -262,7 +263,7 @@ function heartbeatGuests(now) {
     }
     if (!c.lastPingAt || now - c.lastPingAt > 3000) {
       c.lastPingAt = now;
-      try { if (c.conn.open) c.conn.send({ t: 'ping' }); } catch (e) {}
+      try { if (c.conn.open) c.conn.send({ t: 'ping', ts: now }); } catch (e) {}
     }
   }
 }
@@ -345,7 +346,15 @@ function hostMsg(conn, seat, msg) {
   if (!msg || typeof msg !== 'object') return;
   if (msg.t === 'pong') {
     const c = P.conns.find((x) => x.conn === conn);
-    if (c) c.lastPong = Date.now();
+    if (c) {
+      c.lastPong = Date.now();
+      const rtt = Number(msg.ts) ? Date.now() - Number(msg.ts) : NaN;
+      if (Number.isFinite(rtt) && rtt >= 0) { c.lastRtt = rtt; updateHostLatency(); }
+    }
+    return;
+  }
+  if (msg.t === 'gping') {
+    try { if (conn.open) conn.send({ t: 'gpong', ts: msg.ts }); } catch (e) {}
     return;
   }
   if (msg.type === 'act' || msg.t === 'act') {
@@ -474,6 +483,21 @@ function doNewMatch() {
 }
 
 /* ---------------- 房主驱动 ---------------- */
+
+function updateHostLatency() {
+  const vals = P.conns.map((c) => Number(c.lastRtt)).filter((n) => Number.isFinite(n) && n >= 0);
+  if (vals.length) setNetLatency(Math.max(...vals));
+}
+
+/* 客机每 2.5 秒测一次到房主的往返延迟；房主在心跳里测每一台客机 */
+function startLatencyLoop() {
+  if (P.latencyTimer) clearInterval(P.latencyTimer);
+  if (P.role !== 'guest') return;
+  P.latencyTimer = setInterval(() => {
+    if (!P.hostConn || !P.hostConn.open) return;
+    try { P.hostConn.send({ t: 'gping', ts: Date.now() }); } catch (e) {}
+  }, 2500);
+}
 
 function startHostLoop() {
   if (P.loop) clearInterval(P.loop);
@@ -670,6 +694,7 @@ function guestConnect() {
       setPaused([], false);
       status('');
       if (!P.inGame) { setEntryVisible(false); showRoomCode(); renderGuestSeats(); }
+      startLatencyLoop();
       /* 握手：房主在连接刚建立时推的 hello/state 可能丢，这里主动拉，直到拿到座位号为止 */
       clearInterval(P.handshakeTimer);
       let tries = 0;
@@ -745,7 +770,12 @@ window.__jianliReconnect = guestReconnectNow;
 function guestMsg(msg) {
   if (!msg || typeof msg !== 'object') return;
   if (msg.t === 'ping') {
-    try { if (P.hostConn && P.hostConn.open) P.hostConn.send({ t: 'pong' }); } catch (e) {}
+    try { if (P.hostConn && P.hostConn.open) P.hostConn.send({ t: 'pong', ts: msg.ts }); } catch (e) {}
+    return;
+  }
+  if (msg.t === 'gpong') {
+    const rtt = Number(msg.ts) ? Date.now() - Number(msg.ts) : NaN;
+    if (Number.isFinite(rtt) && rtt >= 0) setNetLatency(rtt);
     return;
   }
   if (msg.t === 'reject') {
@@ -894,6 +924,8 @@ function nextHand() {
 }
 
 function exitP2P() {
+  if (P.latencyTimer) { clearInterval(P.latencyTimer); P.latencyTimer = null; }
+  clearNetLatency();
   const role = P.role;
   P.role = null;          // 先摘掉身份，避免主动退出时触发自动重连
   if (role === 'host') {
@@ -917,6 +949,8 @@ function exitP2P() {
 }
 
 function reset() {
+  if (P.latencyTimer) { clearInterval(P.latencyTimer); P.latencyTimer = null; }
+  clearNetLatency();
   clearInterval(P.loop);
   clearInterval(P.uiTimer);
   clearInterval(P.handshakeTimer);
@@ -927,7 +961,7 @@ function reset() {
     engine: null, started: false, over: false, version: 0, deadline: null,
     lastKey: '', lastBotAt: 0, lastSentVersion: -1, snap: null, inGame: false,
     resultKey: '', lastPhase: '', lastStateVersion: -1, hostConn: null, loop: null, uiTimer: null, joinTimer: null,
-    clockOffset: 0, connGen: 0, reconnectTimer: null, reconnectTry: 0, handshakeTimer: null,
+    clockOffset: 0, connGen: 0, reconnectTimer: null, reconnectTry: 0, handshakeTimer: null, latencyTimer: null,
   });
 }
 

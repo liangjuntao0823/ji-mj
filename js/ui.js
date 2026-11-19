@@ -535,6 +535,7 @@ function drawTing(s) {
   const more = waits.length > shown.length ? `<span class="ting-more">等 ${waits.length} 种</span>` : '';
   el.innerHTML = `${tag ? `<div class="ting-note">${tag}</div>` : ''}<div class="ting-tiles">${items}${more}</div>`;
   el.classList.add('is-on');
+  el.classList.toggle('is-lifted', !!(myTurn && s.lastDrawn !== null && s.lastDrawn !== undefined && p && (p.hand || []).length >= 11));
   /* 有操作按钮时贴着按钮上方，否则贴右下角 */
   const rows = Math.ceil((UI.acts || []).length / 2);
   el.style.right = '36px';
@@ -1431,6 +1432,11 @@ function bindAll() {
   const hv = $('home-voice'); if (hv) hv.addEventListener('click', () => setVoice(!voiceOn()));
   const tv = $('btn-voice'); if (tv) tv.addEventListener('click', () => setVoice(!voiceOn()));
   const hf = $('home-full'); if (hf) hf.addEventListener('click', toggleFullscreen);
+  const nt = $('home-net-test');
+  if (nt) nt.addEventListener('click', () => {
+    sfx('tap');
+    if (window.JianliGame && typeof window.JianliGame.testServerLatency === 'function') window.JianliGame.testServerLatency();
+  });
   const tf = $('btn-full'); if (tf) tf.addEventListener('click', toggleFullscreen);
   const tb = $('btn-board'); if (tb) tb.addEventListener('click', () => { sfx('tap'); toggleBoard(); });
   const ex = $('btn-exit'); if (ex) ex.addEventListener('click', () => {
@@ -1528,6 +1534,24 @@ function submitAction(a) {
   UI.sel = null;
   const zone = $('declare-zone'); if (zone) zone.innerHTML = '';
   if (G.onAct) G.onAct(a);
+}
+
+/* 右下角网络延迟：低于 100ms 绿色，超过 100ms 红色 */
+export function setNetLatency(ms) {
+  const el = $('net-latency');
+  if (!el) return;
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n < 0) { el.classList.remove('is-on', 'is-good', 'is-bad'); el.textContent = ''; return; }
+  const shown = Math.round(n);
+  el.textContent = `${shown}ms`;
+  el.classList.toggle('is-good', shown <= 100);
+  el.classList.toggle('is-bad', shown > 100);
+  el.classList.add('is-on');
+}
+
+export function clearNetLatency() {
+  const el = $('net-latency');
+  if (el) { el.classList.remove('is-on', 'is-good', 'is-bad'); el.textContent = ''; }
 }
 
 /* ---------------- 启动 ---------------- */

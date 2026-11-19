@@ -1510,3 +1510,101 @@ img { -webkit-user-drag: none; user-select: none; }
 .cfg-check input:checked + i { background: linear-gradient(180deg, #f7e6b8, #d6b273); border-color: #f7e6b8; }
 .cfg-check input:checked + i::after { content: ""; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px; border: solid #3a2608; border-width: 0 2px 2px 0; transform: rotate(42deg); }
 .cfg-check em { font-style: normal; font-size: 11px; color: rgba(244, 236, 216, 0.4); }
+
+/* ============================================================
+   v1.1.8 界面放大与延迟显示
+   ============================================================ */
+.home-corner-links {
+  position: absolute; left: 86px; top: 42px; z-index: 20;
+  display: flex; align-items: center; gap: 20px;
+}
+.home-corner-links .rule-link {
+  font-size: 18px; letter-spacing: 1.5px; color: rgba(244, 236, 216, 0.72);
+  padding: 6px 2px; border-bottom: 1px solid rgba(217, 184, 120, 0.4);
+}
+.home-corner-links .rule-link:hover { color: var(--gold-hi); }
+
+/* 首页右侧功能字号整体加大 */
+.home-right { width: 560px; right: 64px; }
+.home-menu { padding: 30px; }
+.home-menu-label { font-size: 16px; letter-spacing: 3px; }
+.net-opt { font-size: 17px; padding: 7px 14px; }
+.menu-btn .mb-main { font-size: 26px; letter-spacing: 2.5px; }
+.menu-btn .mb-sub { font-size: 15px; }
+.mode-entry-title { font-size: 22px; }
+.mode-entry-sum { font-size: 14px; }
+.mode-entry { height: 76px; }
+.rules-strip b { font-size: 27px; }
+.rules-strip span { font-size: 14px; }
+.menu-foot .toggles { gap: 10px; align-items: center; margin-left: auto; }
+
+/* 全屏 / 声音 / 连通测试：三个按钮一起放大 */
+.menu-foot .icon-btn { width: 48px; height: 48px; border-radius: 15px; }
+.menu-foot .icon-btn svg { width: 24px; height: 24px; }
+.net-test-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 48px; padding: 0 15px; border-radius: 15px;
+  border: 1px solid rgba(217, 184, 120, 0.32);
+  background: linear-gradient(180deg, rgba(24, 72, 60, 0.9), rgba(9, 36, 30, 0.92));
+  color: var(--gold-hi); font-size: 16px; letter-spacing: 1px; white-space: nowrap;
+}
+.net-test-btn:hover { border-color: rgba(247, 230, 184, 0.6); }
+.net-test-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(244, 236, 216, 0.4); }
+.net-test-btn.is-ok .net-test-dot { background: #6fe0a8; box-shadow: 0 0 8px rgba(111, 224, 168, 0.8); }
+.net-test-btn.is-bad .net-test-dot { background: #ff8b72; box-shadow: 0 0 8px rgba(255, 139, 114, 0.8); }
+
+/* 右下角网络延迟 */
+.net-latency {
+  position: absolute; right: 18px; bottom: 12px; z-index: 120;
+  display: none; align-items: center; gap: 5px;
+  padding: 3px 8px; border-radius: 9px;
+  font-size: 12px; line-height: 1.25; letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
+  background: rgba(3, 20, 16, 0.72);
+  border: 1px solid rgba(217, 184, 120, 0.2);
+  color: #8fe3b6;
+  pointer-events: none;
+}
+.net-latency.is-on { display: inline-flex; }
+.net-latency.is-bad { color: #ff8b72; border-color: rgba(255, 139, 114, 0.35); }
+.net-latency.is-good { color: #8fe3b6; }
+.net-latency::before { content: "延迟"; opacity: 0.65; font-size: 11px; }
+
+/* 模式选择弹窗放大 */
+.mode-card { width: 820px; max-height: 760px; padding: 26px 34px 22px; }
+.mode-card h3 { font-size: 32px; letter-spacing: 5px; }
+.mode-card .rules-lead { font-size: 16px; }
+.mode-row { padding: 19px 22px; gap: 26px; margin-top: 15px; }
+.mode-row-label { width: 108px; flex-basis: 108px; font-size: 19px; }
+.mode-card .mode-seg button { height: 56px; padding: 0 30px; font-size: 21px; border-radius: 13px; }
+.mode-card .mode-check { font-size: 21px; gap: 12px; }
+.mode-card .mode-check i { width: 27px; height: 27px; }
+.mode-card .mode-check input:checked + i::after { left: 9px; top: 3px; width: 7px; height: 14px; }
+.mode-card .mode-check em { font-size: 15px; }
+.mode-share-note { margin-left: 134px; font-size: 15px; }
+.mode-tip { font-size: 15px; }
+.mode-card .rules-close { height: 52px; padding: 0 42px; font-size: 19px; }
+
+/* 规则与更新记录页面字号放大 */
+.rules-card { width: 980px; max-height: 760px; padding: 26px 38px 22px; }
+.rules-card h3 { font-size: 34px; letter-spacing: 5px; }
+.rules-card .rules-lead { font-size: 17px; }
+.rules-block h4 { font-size: 17px; }
+.rules-block p { font-size: 16px; line-height: 1.65; }
+.rules-block { padding: 12px 16px; }
+.rules-close { height: 50px; padding: 0 40px; font-size: 18px; }
+#changelog-modal .rules-card { width: 860px; }
+.release-head strong { font-size: 20px; }
+.release-head span { font-size: 15px; }
+.release-col-title { font-size: 15px; }
+.release-col li { font-size: 16px; line-height: 1.65; }
+
+/* 抓回来的牌和手牌分开 */
+.hand .tile.is-drawn { margin-left: 18px !important; border-left: 0 !important; }
+.hand .tile.is-drawn::before {
+  content: ""; position: absolute; left: -10px; top: 20%; width: 1px; height: 60%;
+  background: rgba(247, 230, 184, 0.35);
+}
+
+/* 抓牌时把听牌提示抬高，避免遮住最右边抓进来的牌 */
+.ting-panel.is-lifted { bottom: 300px !important; }

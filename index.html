@@ -20,6 +20,10 @@
       <section class="view is-on" id="view-home">
         <div class="home-bg"></div>
         <div class="home-frame"></div>
+        <div class="home-corner-links">
+          <button class="rule-link" id="home-rules">规则与番型</button>
+          <button class="rule-link" id="home-changelog">更新记录</button>
+        </div>
         <div class="home-watermark" aria-hidden="true">中</div>
 
         <div class="home-left">
@@ -84,16 +88,15 @@
               <span class="mode-entry-arrow" aria-hidden="true">›</span>
             </button>
             <div class="menu-foot">
-              <div class="menu-links">
-                <button class="rule-link" id="home-rules">规则与番型</button>
-                <button class="rule-link" id="home-changelog">更新记录</button>
-              </div>
               <div class="toggles">
                 <button class="icon-btn" id="home-voice" title="声音开关" aria-label="声音开关">
                   <svg viewBox="0 0 24 24"><path d="M4 9.5h3l4-3.5v11L7 14.5H4z"/><path d="M15.5 8.5a4.4 4.4 0 0 1 0 7" class="v-wave"/></svg>
                 </button>
                 <button class="icon-btn" id="home-full" title="全屏" aria-label="全屏">
                   <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 15v5h-5M20 9V4h-5M4 15v5h5"/></svg>
+                </button>
+                <button class="net-test-btn" id="home-net-test" type="button" title="测试公网服务器连通性">
+                  <span class="net-test-dot"></span><span id="home-net-test-label">连通测试</span>
                 </button>
               </div>
             </div>
@@ -231,6 +234,7 @@
 
       <!-- ===== 提示 ===== -->
       <div id="toast"></div>
+      <div id="net-latency" class="net-latency" aria-live="polite"></div>
 
       <!-- ===== 模式选择 ===== -->
       <div id="mode-modal">

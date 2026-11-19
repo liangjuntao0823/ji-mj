@@ -5,7 +5,7 @@ import { label, SEAT_LABEL, isPizi } from './tiles.js';
 import {
   G as UIView, initTable, renderAll, updateTimer, showToast, clearToast,
   showResult, hideResult, backToHome, resetEventState, initHome,
-  showBoard, hideBoard, setRoomCode,
+  showBoard, hideBoard, setRoomCode, setNetLatency,
 } from './ui.js';
 import { openLAN } from './net.js';
 import { openP2P } from './p2p.js';
@@ -436,4 +436,34 @@ export function attachEngine(engine, humanSeat, mode, names, rounds) {
 }
 
 /* 新 UI 的入口就这三个：开局、局域网、手机 P2P */
-window.JianliGame = { startSingle, attachEngine, openLAN, openP2P, openNetwork, setNetMode, S };
+/* 公网服务器连通测试：请求回来即记录本次往返延迟 */
+async function testServerLatency() {
+  const btn = document.getElementById('home-net-test');
+  const label = document.getElementById('home-net-test-label');
+  if (btn) { btn.disabled = true; btn.classList.remove('is-ok', 'is-bad'); }
+  if (label) label.textContent = '测试中…';
+  if (!SERVER_URL) {
+    if (label) label.textContent = '未配置';
+    if (btn) { btn.disabled = false; btn.classList.add('is-bad'); }
+    showToast('公网服务器地址还没配置');
+    return;
+  }
+  const started = performance.now();
+  try {
+    const res = await fetch(`${SERVER_URL}/api/room?cb=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error('http ' + res.status);
+    await res.json();
+    const ms = Math.round(performance.now() - started);
+    setNetLatency(ms);
+    if (label) label.textContent = `${ms}ms`;
+    if (btn) { btn.classList.toggle('is-ok', ms <= 100); btn.classList.toggle('is-bad', ms > 100); }
+  } catch (e) {
+    setNetLatency(null);
+    if (label) label.textContent = '连接失败';
+    if (btn) btn.classList.add('is-bad');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+window.JianliGame = { startSingle, attachEngine, openLAN, openP2P, openNetwork, setNetMode, testServerLatency, S };

@@ -1,5 +1,5 @@
 /* 局域网联机客户端：轮询服务器快照 + 提交动作 */
-import { G, initTable, renderAll, updateTimer, showToast, showResult, hideResult, backToHome, updateReadyBar, setRoomCode, showBoard, hideBoard, setPaused } from './ui.js';
+import { G, initTable, renderAll, updateTimer, showToast, showResult, hideResult, backToHome, updateReadyBar, setRoomCode, showBoard, hideBoard, setPaused, setNetLatency, clearNetLatency } from './ui.js';
 import { label, SEAT_LABEL } from './tiles.js';
 
 const NET = {
@@ -145,8 +145,11 @@ function stopPolling() {
 async function pollOnce() {
   if (!NET.token) return;
   let r;
+  let started = 0;
   try {
+    started = performance.now();
     r = await api('/api/state?token=' + encodeURIComponent(NET.token));
+    setNetLatency(performance.now() - started);
   } catch {
     el('lobby-status').textContent = '服务器连不上了';
     if (NET.inGame) setPaused([NET.name || '我'], true, { roomCode: NET.code, canRefresh: true, onRefresh: reconnectSelf });
@@ -360,6 +363,7 @@ window.__jianliReconnect = reconnectSelf;
 
 function exitLAN() {
   setRoomCode(null);
+  clearNetLatency();
   stopPolling();
   NET.inGame = false;
   NET.snap = null;
