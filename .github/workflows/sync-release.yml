@@ -1,4 +1,4 @@
-name: sync-v1.1.9-release
+name: sync-v1.2.0-release
 on:
   push:
     paths:
@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download release payload
-        run: curl -fsSL https://aka.doubaocdn.com/s/quJkdHZh0W -o /tmp/release.tar.gz
+        run: curl -fsSL https://aka.doubaocdn.com/s/jd2KV5Twj8 -o /tmp/release.tar.gz
       - name: Apply payload
         run: |
           mkdir -p /tmp/payload
@@ -26,6 +26,6 @@ jobs:
           if git diff --cached --quiet; then
             echo 'no changes'
           else
-            git commit -m 'release: v1.1.9 电脑开房'
+            git commit -m 'release: v1.2.0 电脑开房菜单与房间延迟'
             git push
           fi
