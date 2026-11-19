@@ -441,6 +441,13 @@ img { -webkit-user-drag: none; user-select: none; }
   background: rgba(4, 22, 18, 0.5);
   border: 1px solid rgba(217, 184, 120, 0.2);
 }
+.mode-play {
+  font-size: 13px; letter-spacing: 1.5px; color: rgba(247, 230, 184, 0.9);
+  padding: 6px 14px; border-radius: 13px;
+  background: rgba(4, 22, 18, 0.5);
+  border: 1px solid rgba(217, 184, 120, 0.24);
+  white-space: nowrap;
+}
 .room-chip {
   display: none; align-items: center; gap: 8px;
   height: 30px; padding: 0 14px; border-radius: 15px;
@@ -611,7 +618,7 @@ img { -webkit-user-drag: none; user-select: none; }
   box-shadow: 0 2px 0 rgba(4, 26, 21, 0.9), 0 4px 8px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(247, 230, 184, 0.24);
 }
 .gang-cover .cover-more { font-size: 10px; color: var(--gold-hi); }
-/* 打出的红中（皮子）摆在露牌区 */
+/* 打出的红中（油）摆在露牌区 */
 .meld-group.is-reds {
   background: rgba(158, 44, 32, 0.26);
   box-shadow: inset 0 0 0 1px rgba(233, 128, 100, 0.34);
@@ -757,6 +764,12 @@ img { -webkit-user-drag: none; user-select: none; }
 }
 .act-btn:active { transform: scale(0.94); }
 .act-btn:hover { filter: brightness(1.08); }
+.act-btn.bu {
+  color: #08211b;
+  background: radial-gradient(circle at 50% 26%, #e9fff8 0%, #8ed9c4 42%, #2f8f76 100%);
+  border-color: rgba(233, 255, 248, 0.8);
+  box-shadow: 0 0 22px rgba(111, 209, 179, 0.35), 0 6px 16px rgba(0, 0, 0, 0.5), inset 0 2px 0 rgba(255, 255, 255, 0.5);
+}
 .act-btn.peng {
   color: #061f18;
   background: radial-gradient(circle at 50% 26%, #d8fff0 0%, #7fe0bd 40%, #2c9b78 100%);
@@ -1397,7 +1410,7 @@ img { -webkit-user-drag: none; user-select: none; }
 }
 .addon-badge.is-wait { color: rgba(244, 236, 216, 0.55); border-color: rgba(217, 184, 120, 0.22); }
 .addon-badge.me { left: 50%; bottom: 8px; transform: translateX(-50%); }
-.addon-badge.right { right: 6px; top: 50%; transform: translateY(-50%) rotate(90deg); }
+.addon-badge.right { right: 6px; top: 50%; transform: translateY(-50%) rotate(-90deg); }
 .addon-badge.top { left: 50%; top: 8px; transform: translateX(-50%); }
 .addon-badge.left { left: 6px; top: 50%; transform: translateY(-50%) rotate(-90deg); }
 

@@ -3,6 +3,7 @@
  */
 import { Engine, DEFAULT_RULE } from './engine.js';
 import { nextAction, discardCandidate } from './bot.js';
+import { isPizi } from './tiles.js';
 import { initTable, renderAll, updateTimer, showResult, hideResult, backToHome, updateReadyBar, setRoomCode, setPaused, showBoard, hideBoard } from './ui.js';
 
 const ROUNDS = 8;
@@ -547,6 +548,7 @@ function hostTick() {
     if (d.kind === 'discard') {
       const who = s.players[d.seat];
       who.declareIntent = false;  /* 超时自动出牌，报听声明作废 */
+      if (who.hand.some(isPizi)) { applyHostAction({ type: 'bu' }, d.seat); return; }
       /* 单钓已明牌时只能打刚摸的那张 */
       const forced = (who.singleLocked !== null && s.lastDrawn !== null && who.hand.includes(s.lastDrawn))
         ? s.lastDrawn : null;

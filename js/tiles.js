@@ -76,7 +76,7 @@ export function shuffledTiles(seed, withDragons = false) {
   return arr;
 }
 
-/** 牌墙：head 为正常摸牌端，tail 为杠/皮子补牌端 */
+/** 牌墙：head 为正常摸牌端，tail 为杠/油补牌端 */
 export class Wall {
   constructor(seedOrTiles, head, tail, withDragons = false) {
     if (Array.isArray(seedOrTiles)) {

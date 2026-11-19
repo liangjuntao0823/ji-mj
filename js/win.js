@@ -1,5 +1,5 @@
 /* 胡牌判定 —— 与 iOS 版 WinChecker 一致
- * 红中是皮子：手里带红中一律不算胡。
+ * 红中是油：手里带红中一律不算胡。
  * 标准型：4 组面子（顺子/刻子）+ 1 对将；七对只在无副露时成立。
  */
 import { RED_RAW, ALL_KINDS } from './tiles.js';
@@ -103,11 +103,15 @@ export function isBaDuiShape(hand, gangCount = 0) {
   for (let i = 0; i < 27; i++) if (c[i] >= 4) quads.push(i);
   for (const t of quads) c[t] -= 4;
   const totalGangs = gangCount + quads.length;
-  if (totalGangs < 2) return false;
+  /* 清八对：2 个杠 = 4 对，手里 4 对，合计 8 对（16 张）；
+     豪华清八对：3 个杠 = 6 对，手里 2 对（18 张）；或 2 个杠 + 手里 4 对里带 4 张同牌（按 3 个杠算）。
+     不能再用“余牌至少 2 对”放宽，否则 2 杠 + 3 对会被误算成清八对。 */
+  if (totalGangs !== 2 && totalGangs !== 3) return false;
+  const needRest = totalGangs === 2 ? 8 : 4;
   let rest = 0;
   for (let i = 0; i < 27; i++) {
     if (c[i] % 2 !== 0) return false;
     rest += c[i];
   }
-  return rest >= 4;
+  return rest === needRest;
 }

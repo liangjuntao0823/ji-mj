@@ -10,6 +10,7 @@ import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Engine, DEFAULT_RULE } from './js/engine.js';
 import { nextAction, discardCandidate } from './js/bot.js';
+import { isPizi } from './js/tiles.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8878);
@@ -223,6 +224,7 @@ setInterval(() => {
     const d = room.deadline;
     room.deadline = null;
     if (d.kind === 'discard') {
+      if (s.players[d.seat].hand.some(isPizi)) { applyAction({ type: 'bu' }, d.seat); return; }
       const t = discardCandidate(s.players[d.seat].hand);
       if (t !== null) applyAction({ type: 'discard', tile: t }, d.seat);
     } else {

@@ -1,5 +1,5 @@
 /* 机器人 AI —— 移植自 iOS Bot.swift
- * 不追求强，要求「像人」：先打皮子、再拆孤张、不无脑碰杠。
+ * 不追求强，要求「像人」：先打油、再拆孤张、不无脑碰杠。
  */
 import { RED_RAW, isPizi, rankOf } from './tiles.js';
 
@@ -15,6 +15,7 @@ export function nextAction(engine, seat) {
   }
 
   if (s.phase === 'finalDraw' && s.current === seat) {
+    if (s.players[seat].hand.some(isPizi)) return { type: 'bu' };
     if (engine.canHu(seat)) return { type: 'hu' };
     for (const opt of engine.options(seat)) {
       if (opt.type === 'gangAdded' || opt.type === 'gangConcealed') return { type: opt.type, tile: opt.tile };
@@ -23,6 +24,7 @@ export function nextAction(engine, seat) {
     return { type: 'finalPass' };
   }
   if (s.phase !== 'awaitingDiscard' || s.current !== seat) return null;
+  if (s.players[seat].hand.some(isPizi)) return { type: 'bu' };
   if (engine.canHu(seat)) return { type: 'hu' };
 
   /* 已经亮牌以后不能换牌：只能打刚摸进来的那张（还没亮牌时可以任选） */
@@ -59,7 +61,7 @@ export function shouldPeng(hand, tile) {
 export function discardCandidate(hand) {
   if (hand.length === 0) return null;
   const pi = hand.find(isPizi);
-  if (pi !== undefined) return pi; // 皮子留不得
+  if (pi !== undefined) return pi; // 油留不得
 
   let best = null;
   let bestScore = Infinity;

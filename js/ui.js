@@ -40,7 +40,7 @@ const AVATARS = [
 ];
 const AVATAR_BY_NAME = { '涛': 0, '老李': 1, '小美': 2, '阿强': 3 };
 const MODE_TAG = { single: '单机对局', lan: '局域网联机', net: '公网联机', p2p: '手机联机' };
-const REASON = { selfDraw: '自摸', pointGang: '明杠', concealedGang: '暗杠', addedGang: '回头笑', redGang: '红中杠' };
+const REASON = { selfDraw: '自摸', pointGang: '明杠', concealedGang: '暗杠', addedGang: '回头笑', redGang: '油杠' };
 const UI = {
   view: 'home',
   state: null,
@@ -187,6 +187,7 @@ export function initTable(opts) {
   UI.voiceRound = 0;
   UI.voiceKey = '';
   UI.voiceMelds = [null, null, null, null];
+  UI.voicePizi = [null, null, null, null];
   UI.voiceResult = '';
   UI.result = null; UI.boardOpen = false; UI.paused = false;
   UI.matchStats = { wins: [0, 0, 0, 0], fan: [0, 0, 0, 0] };
@@ -253,6 +254,13 @@ function drawTable(s) {
   }
   const tag = $('mode-tag');
   if (tag) tag.textContent = MODE_TAG[G.mode] || '对局';
+  const play = $('mode-play');
+  if (play) {
+    const share = Math.max(1, Math.min(3, Number(s.baseShare) || 1));
+    const parts = [`倒${share}`, s.withDragons ? '中发白' : '红中'];
+    if (s.addonEnabled) parts.push('自由加增');
+    play.textContent = parts.join(' · ');
+  }
   if (G.mode !== 'single') {
     const inline = s.code ? String(s.code) : ((D.querySelector('#p2p-code-show .p2p-code') || {}).textContent || '');
     setRoomCodeState(inline.trim());
@@ -350,7 +358,7 @@ function plateHtml(s, seat, p) {
     <div class="timer-num"></div>`;
 }
 
-/** 打出去的红中（皮子）：摆在露牌区，一张牌一张 */
+/** 补出来的油（红中/发财/白板）：摆在露牌区，一张牌一张 */
 function redsHtml(p, rotated = false, big = false) {
   const n = Math.min(12, (p && p.redsPlayed) || 0);
   if (!n) return '';
@@ -557,7 +565,7 @@ function drawAddons(s) {
   const baseShare = Math.max(1, Math.min(3, Number(s.baseShare) || 1));
   layer.innerHTML = `<div class="addon-card">
     <div class="addon-title">第 ${s.roundIndex || 1} 局 · 自由加增</div>
-    <div class="addon-sub">份子 = ${baseShare} + 加增 + 皮子数${baseShare > 1 ? `（围增倒${baseShare}）` : ''}。四家全部选完才发牌。</div>
+    <div class="addon-sub">份子 = ${baseShare} + 加增 + 油数${baseShare > 1 ? `（围增倒${baseShare}）` : ''}。四家全部选完才发牌。</div>
     <div class="addon-choices">
       ${[0, 1, 2, 3].map((v) => `<button class="addon-btn${v === 0 ? ' ghost' : ''}" data-addon="${v}">${v === 0 ? '不加增' : '增 ' + v + ' 份'}</button>`).join('')}
     </div>
@@ -585,7 +593,8 @@ function drawActions(s) {
     let hasHu = false;
     for (const a of raw) {
       const t = typeof a === 'string' ? a : a.type;
-      if (t === 'hu') { acts.push({ type: 'hu', label: '胡', cls: 'hu' }); hasHu = true; }
+      if (t === 'bu') { acts.push({ type: 'bu', label: '补', cls: 'bu' }); hasHu = true; }
+      else if (t === 'hu') { acts.push({ type: 'hu', label: '胡', cls: 'hu' }); hasHu = true; }
       else if (t === 'gangConcealed' || t === 'gangAdded') gangs.push(a);
     }
     if (gangs.length === 1) {
@@ -594,7 +603,7 @@ function drawActions(s) {
     } else if (gangs.length > 1) {
       acts.push({ type: 'gangPick', label: '杠', cls: 'gang', gangs });
     }
-    if (s.phase === 'finalDraw') acts.push({ type: 'finalPass', label: '过', cls: 'pass' });
+    if (s.phase === 'finalDraw' && !acts.some((a) => a.type === 'bu')) acts.push({ type: 'finalPass', label: '过', cls: 'pass' });
     const p = s.players[UI.me];
     const decl = G.getDeclareOptions ? (G.getDeclareOptions() || []) : (s.myDeclareOptions || []);
     if (p && !p.declared && !p.declareIntent && !hasHu && decl.length > 0) {
@@ -628,7 +637,8 @@ function drawHint(s) {
   } else if (s.phase === 'awaitingClaim' && pend && pend.length) {
     parts.push(`别家打出 <b>${esc(label(s.pending ? s.pending.tile : 0))}</b>，可以碰 / 杠 / 过`);
   } else if (myTurn) {
-    if (UI.sel) parts.push(`已选中 <b>${esc(label(UI.sel.raw))}</b> · 再点一次打出`);
+    if (p && p.hand.some(isPizi)) parts.push('手里有油 · 点「补」摆出后才能出牌');
+    else if (UI.sel) parts.push(`已选中 <b>${esc(label(UI.sel.raw))}</b> · 再点一次打出`);
     else if (p && p.declared) parts.push(`<span class="warn">已报听</span> · 只能打摸到的 <b>${esc(label(s.lastDrawn))}</b>`);
     else if (p && p.declareIntent) parts.push(`<span class="warn">已声明报听</span> · 请打出能听牌的牌`);
     else if (p && s.mustDiscard === UI.me) parts.push('碰完先打一张 · 点牌选中，再点打出');
@@ -809,7 +819,7 @@ function winHtml(payload) {
     </div>`;
 }
 
-/* 单局分数面板：每家只显示本局增减分、累计总分、皮子明细；赢家高亮。
+/* 单局分数面板：每家只显示本局增减分、累计总分、油明细；赢家高亮。
    中发白模式拆成中/发/白；自由加增只给选了增的玩家显示「增」。 */
 function roundBoard(scores, delta, names, opt = {}) {
   const winner = opt.winner != null ? opt.winner : -1;
@@ -826,7 +836,7 @@ function roundBoard(scores, delta, names, opt = {}) {
     const hasAddon = addonEnabled && addon > 0;
     const pizi = opt.withDragons
       ? `<span class="rb-pizi-counts">
-          <span class="rb-pizi"><em>中</em><b>${countPizi(i, RED_RAW) || pr}</b></span>
+          <span class="rb-pizi"><em>中</em><b>${countPizi(i, RED_RAW)}</b></span>
           <span class="rb-pizi"><em>发</em><b>${countPizi(i, FA_RAW)}</b></span>
           <span class="rb-pizi"><em>白</em><b>${countPizi(i, BAI_RAW)}</b></span>
           ${hasAddon ? `<span class="rb-pizi rb-addon"><em>增</em><b>${addon}</b></span>` : ''}
@@ -1266,6 +1276,7 @@ function announceState(s) {
     UI.voiceRound = round;
     UI.voiceKey = '';
     UI.voiceMelds = [null, null, null, null];
+    UI.voicePizi = [null, null, null, null];
     UI.voiceResult = '';
   }
 
@@ -1304,6 +1315,16 @@ function announceState(s) {
       }
       UI.voiceMelds[seat] = sig;
     }
+  }
+
+  /* 补油：露出的油数量增加时播报（初始进桌首帧只记录不播） */
+  for (let seat = 0; seat < 4; seat++) {
+    const p = s.players[seat];
+    const now = p && Array.isArray(p.piziTiles) ? p.piziTiles.length : 0;
+    const old = UI.voicePizi[seat];
+    if (old === null || old === undefined) { UI.voicePizi[seat] = now; continue; }
+    if (now > old) speak('补油');
+    UI.voicePizi[seat] = now;
   }
 
   /* 胡 / 流局：只在进入 finished 的那一次播 */
@@ -1470,6 +1491,10 @@ function onTileClick(raw, i) {
     return;
   }
   const p = s.players[UI.me];
+  if (p && p.hand.some(isPizi)) {
+    showToast('手里有油，先点「补」补完才能出牌', '', 1500);
+    return;
+  }
   const allowed = allowedSet();
   if (!allowed.has(raw)) {
     if (p.declared) showToast('报听后只能打刚摸到的这张', '', 1500);

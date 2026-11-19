@@ -1,7 +1,7 @@
 /* 单机对局控制 */
 import { Engine, DEFAULT_RULE } from './engine.js';
 import { nextAction, discardCandidate } from './bot.js';
-import { label, SEAT_LABEL } from './tiles.js';
+import { label, SEAT_LABEL, isPizi } from './tiles.js';
 import {
   G as UIView, initTable, renderAll, updateTimer, showToast, clearToast,
   showResult, hideResult, backToHome, resetEventState, initHome,
@@ -223,8 +223,11 @@ function toastEvents(events) {
   const s = S.engine.state;
   for (const ev of events) {
     switch (ev.type) {
+      case 'bu':
+        showToast(`${s.players[ev.seat].name} 补油 ${label(ev.tile)}（第 ${ev.count} 张）`);
+        break;
       case 'redDiscarded':
-        showToast(`${s.players[ev.seat].name} 打出皮子（第 ${ev.count} 张）`);
+        showToast(`${s.players[ev.seat].name} 补油 ${label(ev.tile)}（第 ${ev.count} 张）`);
         break;
       case 'peng':
         showToast(`${s.players[ev.seat].name} 碰 ${label(ev.tile)}`);
@@ -247,7 +250,7 @@ function toastEvents(events) {
   }
 }
 
-const reasonName = (r) => ({ selfDraw: '自摸', pointGang: '点杠', concealedGang: '暗杠', addedGang: '蓄杠', redGang: '皮子暗杠' }[r] || r);
+const reasonName = (r) => ({ selfDraw: '自摸', pointGang: '点杠', concealedGang: '暗杠', addedGang: '蓄杠', redGang: '油暗杠' }[r] || r);
 
 /* ---------------- 调度 ---------------- */
 
@@ -302,6 +305,7 @@ function schedule() {
         const st = S.engine.state;
         const me = st.players[S.humanSeat];
         me.declareIntent = false;   /* 超时自动出牌，报听声明作废 */
+        if (me.hand.some(isPizi)) { act({ type: 'bu' }, S.humanSeat); return; }
         /* 单钓已明牌时只能打刚摸的那张 */
         const forced = (me.singleLocked !== null && st.lastDrawn !== null && me.hand.includes(st.lastDrawn))
           ? st.lastDrawn : null;

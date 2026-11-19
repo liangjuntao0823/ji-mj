@@ -4,6 +4,7 @@
  */
 import { Engine, DEFAULT_RULE } from '../js/engine.js';
 import { nextAction, discardCandidate } from '../js/bot.js';
+import { isPizi } from '../js/tiles.js';
 
 const ROUNDS = 8;
 const OFFLINE_MS = 12000;
@@ -199,6 +200,7 @@ export class RoomCore {
       const d = this.room.deadline;
       this.room.deadline = null;
       if (d.kind === 'discard') {
+        if (s.players[d.seat].hand.some(isPizi)) { this.applyAction({ type: 'bu' }, d.seat); return; }
         const t = discardCandidate(s.players[d.seat].hand);
         if (t !== null) this.applyAction({ type: 'discard', tile: t }, d.seat);
       } else {
