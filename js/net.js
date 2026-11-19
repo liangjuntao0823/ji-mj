@@ -153,11 +153,16 @@ async function pollOnce() {
     return;
   }
   if (r.error) {
+    const dissolved = /解散/.test(r.error);
     NET.token = null;
     localStorage.removeItem('jianli_token');
-    el('lobby-status').textContent = '座位已失效，请重新输入名字加入';
+    el('lobby-status').textContent = dissolved ? r.error : '座位已失效，请重新输入名字加入';
     el('lobby-name-row').style.display = 'flex';
     stopPolling();
+    if (dissolved) {
+      showToast(r.error);
+      exitLAN();
+    }
     return;
   }
   NET.seat = r.seat;
@@ -216,6 +221,20 @@ function showCode(code) {
 
 /* ---------------- 房间等待 ---------------- */
 
+async function dissolveRoom() {
+  if (!confirm('解散房间？其他三个人会被移出，房间清空。')) return;
+  try {
+    const r = await api('/api/dissolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: NET.token }) });
+    if (r.error) { showToast(r.error); return; }
+    clearToken();
+    NET.token = null;
+    stopPolling();
+    exitLAN();
+  } catch {
+    showToast('解散失败，检查网络后重试');
+  }
+}
+
 function renderLobby(r) {
   showCode(r.code);
   el('lobby-name-row').style.display = NET.token ? 'none' : 'flex';
@@ -254,6 +273,13 @@ function renderLobby(r) {
       t.style.cssText = 'color: rgba(243,236,216,.6); font-size: 14px;';
       t.textContent = '等待房主开始对局…';
       actions.append(t);
+    }
+    if (NET.seat === 0) {
+      const d = document.createElement('button');
+      d.className = 'big-btn ghost';
+      d.textContent = '解散房间';
+      d.onclick = dissolveRoom;
+      actions.append(d);
     }
   }
 }
@@ -450,6 +476,11 @@ function showFinal() {
     again.textContent = '再来一场';
     again.onclick = async () => { hideResult(); await api('/api/restart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: NET.token }) }); NET.resultKey = ''; pollOnce(); };
     actions.append(again);
+    const diss = document.createElement('button');
+    diss.className = 'big-btn ghost';
+    diss.textContent = '解散房间';
+    diss.onclick = dissolveRoom;
+    actions.append(diss);
   }
   const home = document.createElement('button');
   home.className = 'big-btn ghost';

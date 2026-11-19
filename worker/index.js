@@ -92,6 +92,24 @@ export class RoomCore {
   resetReady() { this.room.nextReady = [false, false, false, false]; }
   resetNewMatch() { this.room.newMatch = [false, false, false, false]; }
 
+  resetRoom() {
+    const fresh = new RoomCore().room;
+    this.room = { ...fresh, code: String(Math.floor(100000 + Math.random() * 900000)) };
+  }
+
+  dissolve() {
+    this.room.closed = true;
+    this.room.players = [];
+    this.room.engine = null;
+    this.room.started = false;
+    this.room.over = false;
+    this.room.paused = false;
+    this.room.deadline = null;
+    this.room.nextReady = [false, false, false, false];
+    this.room.newMatch = [false, false, false, false];
+    this.room.version++;
+  }
+
   offlineNames() {
     return this.room.players.filter((p) => p && !p.isBot && !p.online).map((p) => p.name);
   }
@@ -228,7 +246,7 @@ export class RoomCore {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     this.tick();
     const url = new URL(request.url);
-    const room = this.room;
+    let room = this.room;
 
     if (url.pathname === '/api/room' && request.method === 'GET') {
       return json({
@@ -239,6 +257,7 @@ export class RoomCore {
     }
 
     if (url.pathname === '/api/join' && request.method === 'POST') {
+      if (room.closed) { this.resetRoom(); room = this.room; }
       const body = await request.json().catch(() => ({}));
       const name = cleanName(body.name);
       const oldSeat = room.players.findIndex((p) => p && !p.isBot && p.name === name);
@@ -260,7 +279,16 @@ export class RoomCore {
       return json({ seat, token: t, name: room.players[seat].name });
     }
 
+    if (url.pathname === '/api/dissolve' && request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const seat = this.seatByToken(body.token || '');
+      if (seat !== 0) return json({ error: '只有房主能解散房间' }, 403);
+      this.dissolve();
+      return json({ ok: true });
+    }
+
     if (url.pathname === '/api/state' && request.method === 'GET') {
+      if (room.closed) return json({ error: '房间已解散，请回首页' }, 410);
       const t = url.searchParams.get('token') || '';
       const seat = this.seatByToken(t);
       if (seat < 0) return json({ error: '未入座' }, 401);
@@ -368,7 +396,7 @@ export default {
     if (!url.pathname.startsWith('/api/')) {
       return json({ error: 'not found' }, 404);
     }
-    const stub = env.ROOM.get(env.ROOM.idFromName('v110'));
+    const stub = env.ROOM.get(env.ROOM.idFromName('v111'));
     return stub.fetch(request);
   },
 };

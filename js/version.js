@@ -1,8 +1,18 @@
 /* 版本号与更新记录：每次发版同步修改这里与根目录 CHANGELOG.md */
-export const APP_VERSION = '1.1.5';
+export const APP_VERSION = '1.1.6';
 export const APP_RELEASED_AT = '2026-11-19';
 
 export const APP_RELEASES = [
+  {
+    version: '1.1.6',
+    date: '2026-11-19',
+    updates: [
+      '公网服务器房主可点「解散房间」，解散后其他人自动退出，房间清空；下一个人重新创建即可',
+    ],
+    fixes: [
+      '修复公网房间只退出页面、房间一直残留无法真正解散的问题',
+    ],
+  },
   {
     version: '1.1.5',
     date: '2026-11-19',
