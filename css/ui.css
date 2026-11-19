@@ -1625,3 +1625,8 @@ img { -webkit-user-drag: none; user-select: none; }
   color: #c9f0d5; font-size: 16px; line-height: 1.8; text-align: center;
 }
 .pc-host-running span { color: #9fc7b0; font-size: 13px; }
+
+/* v1.2.0：延迟标签按房间类型区分 */
+.net-latency[data-kind="server"]::before { content: "公网"; }
+.net-latency[data-kind="p2p"]::before { content: "直连"; }
+.net-latency[data-kind="pc"]::before { content: "电脑"; }

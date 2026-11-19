@@ -262,7 +262,7 @@ function pushToGuest(conn, seat) {
 }
 
 /* 绑定一条玩家连接的事件；close 时只有这条连接仍是该座位的当前连接才降级为机器人 */
-/* 心跳：3 秒 ping 一次，10 秒没 pong 判掉线（手机切后台、直接关页面都能兜住） */
+/* 心跳：1 秒 ping 一次，10 秒没 pong 判掉线（手机切后台、直接关页面都能兜住） */
 function heartbeatGuests(now) {
   for (const c of P.conns) {
     const p = P.players[c.seat];
@@ -273,7 +273,7 @@ function heartbeatGuests(now) {
       P.lastKey = '';
       P.deadline = null;
     }
-    if (!c.lastPingAt || now - c.lastPingAt > 3000) {
+    if (!c.lastPingAt || now - c.lastPingAt > 1000) {
       c.lastPingAt = now;
       try { if (c.conn.open) c.conn.send({ t: 'ping', ts: now }); } catch (e) {}
     }
@@ -505,7 +505,7 @@ function doNewMatch() {
 
 function updateHostLatency() {
   const vals = P.conns.map((c) => Number(c.lastRtt)).filter((n) => Number.isFinite(n) && n >= 0);
-  if (vals.length) setNetLatency(Math.max(...vals));
+  if (vals.length) setNetLatency(Math.max(...vals), P.hostOnly ? 'pc' : 'p2p');
 }
 
 /* 客机每 2.5 秒测一次到房主的往返延迟；房主在心跳里测每一台客机 */
@@ -515,7 +515,7 @@ function startLatencyLoop() {
   P.latencyTimer = setInterval(() => {
     if (!P.hostConn || !P.hostConn.open) return;
     try { P.hostConn.send({ t: 'gping', ts: Date.now() }); } catch (e) {}
-  }, 2500);
+  }, 1000);
 }
 
 function startHostLoop() {
@@ -538,11 +538,11 @@ function trackStatsP() {
 }
 
 function hostTick() {
+  const now = Date.now();
+  heartbeatGuests(now);
   if (!P.engine) return;
   trackStatsP();
   const s = P.engine.state;
-  const now = Date.now();
-  heartbeatGuests(now);
   if (s.phase === 'finished') {
     P.deadline = null;
     if (s.roundIndex >= (P.rule.rounds || ROUNDS) && !P.over) {   // 打满 8 局直接出总排名，等四人齐点再来一场
@@ -795,7 +795,7 @@ function guestMsg(msg) {
   }
   if (msg.t === 'gpong') {
     const rtt = Number(msg.ts) ? Date.now() - Number(msg.ts) : NaN;
-    if (Number.isFinite(rtt) && rtt >= 0) setNetLatency(rtt);
+    if (Number.isFinite(rtt) && rtt >= 0) setNetLatency(rtt, P.hostOnly ? 'pc' : 'p2p');
     return;
   }
   if (msg.t === 'reject') {
@@ -1087,6 +1087,7 @@ function errText(e) {
 export function openP2P(mode = 'create', hostOnly = false) {
   window.__lobbyBack = exitP2P;
   window.__jianliReconnect = guestReconnectNow;
+  clearNetLatency();
   if (P.role) { el('lobby').classList.add('show'); return; }
   P.hostOnly = !!hostOnly;
   P.entryMode = mode === 'join' ? 'join' : 'create';

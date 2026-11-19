@@ -41,6 +41,7 @@ function clearToken() {
 /* ---------------- 入口 ---------------- */
 
 export function openLAN(serverBase, mode = 'join') {
+  clearNetLatency();
   window.__jianliReconnect = reconnectSelf;
   NET.entryMode = mode === 'create' ? 'create' : 'join';
   window.__lobbyBack = exitLAN;
@@ -149,7 +150,7 @@ async function pollOnce() {
   try {
     started = performance.now();
     r = await api('/api/state?token=' + encodeURIComponent(NET.token));
-    setNetLatency(performance.now() - started);
+    setNetLatency(performance.now() - started, 'server');
   } catch {
     el('lobby-status').textContent = '服务器连不上了';
     if (NET.inGame) setPaused([NET.name || '我'], true, { roomCode: NET.code, canRefresh: true, onRefresh: reconnectSelf });

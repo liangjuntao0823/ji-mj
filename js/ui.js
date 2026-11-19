@@ -1537,11 +1537,12 @@ function submitAction(a) {
 }
 
 /* 右下角网络延迟：低于 100ms 绿色，超过 100ms 红色 */
-export function setNetLatency(ms) {
+export function setNetLatency(ms, kind = '') {
   const el = $('net-latency');
   if (!el) return;
   const n = Number(ms);
   if (!Number.isFinite(n) || n < 0) { el.classList.remove('is-on', 'is-good', 'is-bad'); el.textContent = ''; return; }
+  if (kind) el.dataset.kind = kind;
   const shown = Math.round(n);
   el.textContent = `${shown}ms`;
   el.classList.toggle('is-good', shown <= 100);
@@ -1551,7 +1552,7 @@ export function setNetLatency(ms) {
 
 export function clearNetLatency() {
   const el = $('net-latency');
-  if (el) { el.classList.remove('is-on', 'is-good', 'is-bad'); el.textContent = ''; }
+  if (el) { el.classList.remove('is-on', 'is-good', 'is-bad'); el.textContent = ''; delete el.dataset.kind; }
 }
 
 /* ---------------- 启动 ---------------- */

@@ -5,7 +5,7 @@ import { label, SEAT_LABEL, isPizi } from './tiles.js';
 import {
   G as UIView, initTable, renderAll, updateTimer, showToast, clearToast,
   showResult, hideResult, backToHome, resetEventState, initHome,
-  showBoard, hideBoard, setRoomCode, setNetLatency,
+  showBoard, hideBoard, setRoomCode, setNetLatency, clearNetLatency,
 } from './ui.js';
 import { openLAN } from './net.js';
 import { openP2P } from './p2p.js';
@@ -121,12 +121,19 @@ function paintNetMode() {
     if (joinSub) joinSub.textContent = '手机直连 · 输入 6 位房号';
   }
   const lm = el('lan-main');
-  if (lm) lm.textContent = NET_MODE === 'pc' ? '电脑开房' : '创建房间';
+  if (lm) lm.textContent = '创建房间';
+  /* 电脑开房：电脑只负责开房，首页只保留创建房间和模式选择，隐藏单机与加入 */
+  const pc = NET_MODE === 'pc';
+  const singleBtn = el('btn-single');
+  const joinBtn = el('home-p2p');
+  if (singleBtn) singleBtn.style.display = pc ? 'none' : '';
+  if (joinBtn) joinBtn.style.display = pc ? 'none' : '';
 }
 
 function setNetMode(mode) {
   NET_MODE = (mode === 'server' || mode === 'pc') ? mode : 'p2p';
   try { localStorage.setItem(NET_MODE_KEY, NET_MODE); } catch (e) {}
+  clearNetLatency();
   paintNetMode();
 }
 
@@ -160,6 +167,7 @@ on('btn-single', startSingle);
 on('btn-lan', () => openNetwork('create'));
 
 function startSingle() {
+  clearNetLatency();
   const seed = (Date.now() & 0xffffffff) >>> 0;
   const cfg = readHomeRule();
   S.rounds = cfg.rounds;
@@ -459,12 +467,10 @@ async function testServerLatency() {
     if (!res.ok) throw new Error('http ' + res.status);
     await res.json();
     const ms = Math.round(performance.now() - started);
-    setNetLatency(ms);
-    if (label) label.textContent = `${ms}ms`;
+    if (label) label.textContent = `公网 ${ms}ms`;
     if (btn) { btn.classList.toggle('is-ok', ms <= 100); btn.classList.toggle('is-bad', ms > 100); }
   } catch (e) {
-    setNetLatency(null);
-    if (label) label.textContent = '连接失败';
+    if (label) label.textContent = '公网连接失败';
     if (btn) btn.classList.add('is-bad');
   } finally {
     if (btn) btn.disabled = false;
