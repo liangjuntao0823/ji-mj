@@ -1,0 +1,22 @@
+name: deploy-pages
+on:
+  push:
+    paths:
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare single-file site
+        run: |
+          mkdir -p dist
+          cp "监利红中-横屏版.html" dist/index.html
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 8b60fc3149eb63e41e897667b5772bd0
+        run: npx --yes wrangler@4 pages deploy dist --project-name=jianli-majiang --branch=main --commit-dirty=true
