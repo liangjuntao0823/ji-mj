@@ -63,6 +63,8 @@ function peerOptions() {
 
 const P = {
   role: null,          // 'host' | 'guest'
+  hostOnly: false,     // 电脑开房：电脑只当主机，不占座位
+  seatReady: false,
   entryMode: 'create',
   code: '',
   name: '',
@@ -111,10 +113,10 @@ function buildEntryUI(mode = 'create') {
   const isJoin = mode === 'join';
   el('lobby').classList.add('show');
   el('lobby-name-row').style.display = 'none';
-  document.querySelector('.lobby-title').textContent = isJoin ? '加入房间' : '创建房间';
+  document.querySelector('.lobby-title').textContent = isJoin ? '加入房间' : (P.hostOnly ? '电脑开房' : '创建房间');
   document.querySelector('.lobby-sub').textContent = isJoin
-    ? '手机直连 · 输入房主给你的 6 位房号'
-    : '手机直连 · 自己当房主，开局后空位补机器人';
+    ? (P.hostOnly ? '电脑开房 · 输入电脑上的 6 位房号' : '手机直连 · 输入房主给你的 6 位房号')
+    : (P.hostOnly ? '电脑当主机，不占座位；4 个玩家用手机输入房号加入' : '手机直连 · 自己当房主，开局后空位补机器人');
 
   let box = el('p2p-box');
   if (!box) {
@@ -125,17 +127,19 @@ function buildEntryUI(mode = 'create') {
   }
   box.innerHTML = `
     <div id="p2p-entry">
-      <input id="p2p-name" maxlength="8" placeholder="你的名字" autocomplete="off">
+      ${(!P.hostOnly || isJoin) ? `<input id="p2p-name" maxlength="8" placeholder="你的名字" autocomplete="off">` : `
+      <div class="pc-host-tip">电脑只负责开房和对局，不占玩家座位。<br>4 个玩家各自用手机打开本页面，输入房号加入。</div>`}
       ${isJoin ? `
       <div class="p2p-join-row">
         <input id="p2p-code" maxlength="6" placeholder="6 位房号" autocomplete="off" spellcheck="false">
         <button class="big-btn ghost" id="p2p-join">加入房间</button>
       </div>` : `
-      <button class="big-btn" id="p2p-create">创建房间</button>`}
+      <button class="big-btn" id="p2p-create">${P.hostOnly ? '电脑开房' : '创建房间'}</button>`}
     </div>
     <div id="p2p-code-show" class="hidden"></div>
   `;
-  el('p2p-name').value = P.name || localStorage.getItem('jianli_name') || '';
+  const nameInput = el('p2p-name');
+  if (nameInput) nameInput.value = P.name || localStorage.getItem('jianli_name') || '';
   const createBtn = el('p2p-create');
   if (createBtn) createBtn.onclick = () => createRoom();
   const joinBtn = el('p2p-join');
@@ -166,14 +170,18 @@ function readName() {
 
 async function createRoom() {
   if (!window.Peer) { status('联机组件没加载，刷新一下页面'); return; }
-  const name = readName();
-  if (!name) return;
+  const hostOnly = !!P.hostOnly;
+  let name = '电脑主机';
+  if (!hostOnly) {
+    name = readName();
+    if (!name) return;
+  }
   await ensureIce();
   P.role = 'host';
-  P.seat = 0;
+  P.seat = hostOnly ? -1 : 0;
   const cfg = window.JIANLI_HOME_RULE || {};
   P.rule = { ...DEFAULT_RULE, rounds: [8, 16, 32].includes(Number(cfg.rounds)) ? Number(cfg.rounds) : ROUNDS, withDragons: !!cfg.withDragons, addonEnabled: !!cfg.addonEnabled, baseShare: Math.max(1, Math.min(3, Number(cfg.baseShare) || 1)) };
-  P.players = [{ name, isBot: false, online: true }];
+  P.players = hostOnly ? [] : [{ name, isBot: false, online: true }];
   P.version++;
 
   const tryBind = (attempt) => {
@@ -211,11 +219,11 @@ function renderSeats() {
   const box = el('lobby-seats');
   box.style.display = 'block';
   box.innerHTML = '';
-  const names = ['东（房主）', '南', '西', '北'];
+  const names = P.hostOnly ? ['东', '南', '西', '北'] : ['东（房主）', '南', '西', '北'];
   for (let i = 0; i < 4; i++) {
     const p = P.players[i];
     const row = document.createElement('div');
-    const mine = P.role === 'host' ? i === 0 : i === P.seat;
+    const mine = !P.hostOnly && (P.role === 'host' ? i === 0 : i === P.seat);
     row.className = 'seat-row' + (p ? ' filled' : '') + (mine ? ' me' : '');
     row.textContent = `${names[i]}   ${p ? p.name + (p.isBot ? '（机器人）' : '') : '空位'}`;
     box.append(row);
@@ -225,6 +233,10 @@ function renderSeats() {
 function renderHostActions() {
   const actions = el('lobby-actions');
   actions.innerHTML = '';
+  if (P.hostOnly && P.started && !P.over && P.engine && P.engine.state.phase !== 'finished') {
+    actions.innerHTML = '<div class="pc-host-running">对局进行中 · 房号 ' + P.code + '<br><span>电脑保持本页面打开；玩家掉线后可按原名字回来</span></div>';
+    return;
+  }
   if (P.started && !P.over && P.engine && P.engine.state.phase !== 'finished') return;
   const b = document.createElement('button');
   b.className = 'big-btn';
@@ -241,7 +253,7 @@ function pushToGuest(conn, seat) {
   const send = () => {
     if (P.role !== 'host' || !conn || !conn.open) return;
     try {
-      conn.send({ t: 'hello', seat, started: P.started, over: P.over, code: P.code, players: P.players });
+      conn.send({ t: 'hello', seat, started: P.started, over: P.over, code: P.code, players: P.players, hostOnly: P.hostOnly });
       conn.send({ t: 'state', seat, started: P.started, over: P.over, version: P.version, snap: snapshotFor(seat) });
     } catch {}
   };
@@ -288,12 +300,13 @@ function onGuest(conn) {
   let metaSeat = conn.metadata && typeof conn.metadata.seat === 'number' ? conn.metadata.seat : -1;
 
   /* 断线重连：先按座位号 + 名字对；页面刷新后座位号会丢，再按名字找空位还原 */
-  if ((metaSeat <= 0 || !P.players[metaSeat]) && name) {
-    const idx = P.players.findIndex((p, i) => i > 0 && p && p.name === name);
-    if (idx > 0) metaSeat = idx;
+  const minSeat = P.hostOnly ? 0 : 1;
+  if ((metaSeat < minSeat || !P.players[metaSeat]) && name) {
+    const idx = P.players.findIndex((p, i) => i >= minSeat && p && p.name === name);
+    if (idx >= minSeat) metaSeat = idx;
   }
   /* 断线重连：座位号 + 名字都对得上就原座还原，对局进行中也允许回来 */
-  if (metaSeat > 0 && P.players[metaSeat] && P.players[metaSeat].name === name) {
+  if (metaSeat >= minSeat && P.players[metaSeat] && P.players[metaSeat].name === name) {
     const seat = metaSeat;
     for (const c of P.conns.slice()) {
       if (c.seat === seat && c.conn !== conn) { try { c.conn.close(); } catch {} }
@@ -318,7 +331,8 @@ function onGuest(conn) {
   }
   const used = new Set(P.conns.map((c) => c.seat));
   let seat = -1;
-  for (let i = 1; i < 4; i++) if (!used.has(i) && !P.players[i]) { seat = i; break; }
+  const firstSeat = P.hostOnly ? 0 : 1;
+  for (let i = firstSeat; i < 4; i++) if (!used.has(i) && !P.players[i]) { seat = i; break; }
   if (seat < 0) {
     try { conn.send({ t: 'reject', reason: '房间满了（4 人）' }); } catch {}
     setTimeout(() => { try { conn.close(); } catch {} }, 300);
@@ -338,7 +352,7 @@ function onGuest(conn) {
 function hostBroadcastLobby() {
   const players = P.players.map((p) => ({ name: p && p.name, isBot: !!(p && p.isBot), online: !!(p && p.online) }));
   for (const g of P.conns) {
-    try { if (g.conn.open) g.conn.send({ t: 'lobby', code: P.code, players }); } catch {}
+    try { if (g.conn.open) g.conn.send({ t: 'lobby', code: P.code, players, hostOnly: P.hostOnly }); } catch {}
   }
 }
 
@@ -368,7 +382,7 @@ function hostMsg(conn, seat, msg) {
   } else if (msg.t === 'lobbyReq') {
     /* 客机连上后主动拉一次：房主开局前后立即推的消息可能丢失，这步保证座位号和牌面一定拿得到 */
     pushToGuest(conn, seat);
-    try { conn.send({ t: 'lobby', code: P.code, players: P.players }); } catch {}
+    try { conn.send({ t: 'lobby', code: P.code, players: P.players, hostOnly: P.hostOnly }); } catch {}
   } else if (msg.t === 'newmatch') {
     voteNewMatch(seat);
   } else if (msg.t === 'bye') {
@@ -406,7 +420,12 @@ function startHostGame() {
   P.lastBotAt = 0;
   P.version++;
   P.lastSentVersion = -1;
-  enterGame();
+  if (!P.hostOnly) enterGame();
+  else {
+    const st = el('lobby-status');
+    if (st) st.textContent = '对局已开始，电脑保持本页面打开；房号 ' + P.code;
+    renderHostActions();
+  }
   hostPush();
 }
 
@@ -657,6 +676,7 @@ async function joinRoom() {
   await ensureIce();
   P.role = 'guest';
   P.code = code;
+  P.seatReady = false;
   P.reconnectTry = 0;
   status('正在连接房主…');
 
@@ -787,7 +807,9 @@ function guestMsg(msg) {
   }
   if (msg.t === 'hello') {
     P.seat = msg.seat || 0;
+    P.seatReady = true;
     P.code = msg.code || P.code;
+    if (typeof msg.hostOnly === 'boolean') P.hostOnly = msg.hostOnly;
     if (Array.isArray(msg.players)) { P.players = msg.players; P.lobbySig = ''; }
     if (!P.inGame) { setEntryVisible(false); showRoomCode(); renderGuestSeats(); }
     return;
@@ -795,6 +817,7 @@ function guestMsg(msg) {
   if (msg.t === 'lobby') {
     if (Array.isArray(msg.players)) { P.players = msg.players; P.lobbySig = ''; }
     if (msg.code) P.code = msg.code;
+    if (typeof msg.hostOnly === 'boolean') P.hostOnly = msg.hostOnly;
     if (!P.inGame) { showRoomCode(); renderGuestSeats(); }
     return;
   }
@@ -840,7 +863,7 @@ function renderGuestSeats() {
   const box = el('lobby-seats');
   box.style.display = 'block';
   box.innerHTML = '';
-  const names = ['东（房主）', '南', '西', '北'];
+  const names = P.hostOnly ? ['东', '南', '西', '北'] : ['东（房主）', '南', '西', '北'];
   for (let i = 0; i < 4; i++) {
     const p = seats[i];
     const row = document.createElement('div');
@@ -848,7 +871,7 @@ function renderGuestSeats() {
     row.textContent = `${names[i]}   ${p ? p.name + (p.isBot ? '（机器人）' : '') : '空位'}`;
     box.append(row);
   }
-  document.querySelector('.lobby-sub').textContent = `房号 ${P.code} · 等房主开始`;
+  document.querySelector('.lobby-sub').textContent = `房号 ${P.code} · 等${P.hostOnly ? '电脑' : '房主'}开始`;
   el('lobby-actions').innerHTML = '';
   const tip = document.createElement('div');
   tip.style.cssText = 'color: rgba(243,236,216,.6); font-size: 14px; margin-top: 10px;';
@@ -861,7 +884,7 @@ function renderGuestSeats() {
 function enterGame() {
   if (P.inGame) return;
   /* 客机必须已经拿到房主分配的座位号才能进牌桌，否则座位方向、下一局就绪标记全会错位 */
-  if (P.role === 'guest' && !P.seat) return;
+  if (P.role === 'guest' && !P.seatReady) return;
   if (!P.snap && P.engine) P.snap = wrapSnapshot(snapshotFor(P.role === 'host' ? 0 : P.seat));
   P.inGame = true;
   el('lobby').classList.remove('show');
@@ -957,7 +980,7 @@ function reset() {
   clearTimeout(P.joinTimer);
   clearTimeout(P.reconnectTimer);
   Object.assign(P, {
-    role: null, code: '', seat: 0, peer: null, conns: [], players: [],
+    role: null, hostOnly: false, seatReady: false, code: '', seat: 0, peer: null, conns: [], players: [],
     engine: null, started: false, over: false, version: 0, deadline: null,
     lastKey: '', lastBotAt: 0, lastSentVersion: -1, snap: null, inGame: false,
     resultKey: '', lastPhase: '', lastStateVersion: -1, hostConn: null, loop: null, uiTimer: null, joinTimer: null,
@@ -1061,10 +1084,11 @@ function errText(e) {
   return t || (e.message || '未知错误');
 }
 
-export function openP2P(mode = 'create') {
+export function openP2P(mode = 'create', hostOnly = false) {
   window.__lobbyBack = exitP2P;
   window.__jianliReconnect = guestReconnectNow;
   if (P.role) { el('lobby').classList.add('show'); return; }
+  P.hostOnly = !!hostOnly;
   P.entryMode = mode === 'join' ? 'join' : 'create';
   buildEntryUI(P.entryMode);
 }

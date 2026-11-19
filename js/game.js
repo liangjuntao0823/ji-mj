@@ -96,10 +96,10 @@ initHome();
 const SERVER_URL = String(window.JIANLI_SERVER_URL || '').replace(/\/+$/, '');
 const NET_MODE_KEY = 'jianli_net_mode';
 let NET_MODE = 'p2p';
-try { NET_MODE = localStorage.getItem(NET_MODE_KEY) === 'server' ? 'server' : 'p2p'; } catch (e) {}
+try { const saved = localStorage.getItem(NET_MODE_KEY); NET_MODE = (saved === 'server' || saved === 'pc') ? saved : 'p2p'; } catch (e) {}
 try {
   const q = new URLSearchParams(location.search).get('net');
-  if (q === 'server' || q === 'p2p') NET_MODE = q;
+  if (q === 'server' || q === 'p2p' || q === 'pc') NET_MODE = q;
 } catch (e) {}
 
 function paintNetMode() {
@@ -113,14 +113,19 @@ function paintNetMode() {
   if (NET_MODE === 'server') {
     if (createSub) createSub.textContent = '公网服务器 · 第一人当房主';
     if (joinSub) joinSub.textContent = '公网服务器 · 进当前房间';
+  } else if (NET_MODE === 'pc') {
+    if (createSub) createSub.textContent = '电脑当主机 · 4 人用房号加入';
+    if (joinSub) joinSub.textContent = '手机直连 · 输入电脑开的房号';
   } else {
     if (createSub) createSub.textContent = '手机直连 · 自己当房主';
     if (joinSub) joinSub.textContent = '手机直连 · 输入 6 位房号';
   }
+  const lm = el('lan-main');
+  if (lm) lm.textContent = NET_MODE === 'pc' ? '电脑开房' : '创建房间';
 }
 
 function setNetMode(mode) {
-  NET_MODE = mode === 'server' ? 'server' : 'p2p';
+  NET_MODE = (mode === 'server' || mode === 'pc') ? mode : 'p2p';
   try { localStorage.setItem(NET_MODE_KEY, NET_MODE); } catch (e) {}
   paintNetMode();
 }
@@ -137,7 +142,7 @@ function openNetwork(action = 'join') {
     openLAN(SERVER_URL, mode);
     return;
   }
-  openP2P(mode);
+  openP2P(mode, NET_MODE === 'pc' && mode === 'create');
 }
 
 paintNetMode();

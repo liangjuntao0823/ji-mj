@@ -1608,3 +1608,20 @@ img { -webkit-user-drag: none; user-select: none; }
 
 /* 抓牌时把听牌提示抬高，避免遮住最右边抓进来的牌 */
 .ting-panel.is-lifted { bottom: 300px !important; }
+
+/* ===== v1.1.9 电脑开房：电脑当主机不占座位 ===== */
+.net-switch { gap: 3px; }
+.net-opt { font-size: 15px; padding: 7px 10px; }
+.pc-host-tip {
+  padding: 14px 16px; margin-bottom: 14px;
+  border: 1px solid rgba(226, 197, 137, .26);
+  border-radius: 12px;
+  background: rgba(226, 197, 137, .06);
+  color: #d8cfae; font-size: 15px; line-height: 1.8; text-align: center;
+}
+.pc-host-running {
+  padding: 16px 18px; border: 1px solid rgba(126, 204, 154, .38);
+  border-radius: 14px; background: rgba(44, 106, 75, .18);
+  color: #c9f0d5; font-size: 16px; line-height: 1.8; text-align: center;
+}
+.pc-host-running span { color: #9fc7b0; font-size: 13px; }
