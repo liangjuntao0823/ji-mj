@@ -1,7 +1,7 @@
 /* 机器人 AI —— 移植自 iOS Bot.swift
  * 不追求强，要求「像人」：先打皮子、再拆孤张、不无脑碰杠。
  */
-import { RED_RAW, rankOf } from './tiles.js';
+import { RED_RAW, isPizi, rankOf } from './tiles.js';
 
 export function nextAction(engine, seat) {
   const s = engine.state;
@@ -14,6 +14,14 @@ export function nextAction(engine, seat) {
     return { type: 'pass' };
   }
 
+  if (s.phase === 'finalDraw' && s.current === seat) {
+    if (engine.canHu(seat)) return { type: 'hu' };
+    for (const opt of engine.options(seat)) {
+      if (opt.type === 'gangAdded' || opt.type === 'gangConcealed') return { type: opt.type, tile: opt.tile };
+      if (opt.type === 'finalPass') return { type: 'finalPass' };
+    }
+    return { type: 'finalPass' };
+  }
   if (s.phase !== 'awaitingDiscard' || s.current !== seat) return null;
   if (engine.canHu(seat)) return { type: 'hu' };
 
@@ -38,7 +46,7 @@ export function shouldPeng(hand, tile) {
   if (hand.filter((t) => t === tile).length < 2) return false;
   const pairs = new Map();
   for (const t of hand) {
-    if (t === RED_RAW) continue;
+    if (isPizi(t)) continue;
     pairs.set(t, (pairs.get(t) || 0) + 1);
   }
   let pairCount = 0;
@@ -50,7 +58,8 @@ export function shouldPeng(hand, tile) {
 
 export function discardCandidate(hand) {
   if (hand.length === 0) return null;
-  if (hand.includes(RED_RAW)) return RED_RAW; // 皮子留不得
+  const pi = hand.find(isPizi);
+  if (pi !== undefined) return pi; // 皮子留不得
 
   let best = null;
   let bestScore = Infinity;
@@ -59,7 +68,7 @@ export function discardCandidate(hand) {
     const same = hand.filter((t) => t === tile).length;
     score += same * 4;
 
-    if (tile !== RED_RAW) {
+    if (!isPizi(tile)) {
       const suit = Math.floor(tile / 9);
       for (const delta of [-2, -1, 1, 2]) {
         const target = tile + delta;

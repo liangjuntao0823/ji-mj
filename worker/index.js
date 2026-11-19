@@ -48,6 +48,7 @@ export class RoomCore {
       lastBotAt: 0,
       lastKey: '',
       deadline: null,
+      rule: { ...DEFAULT_RULE, rounds: ROUNDS },
     };
   }
 
@@ -124,7 +125,7 @@ export class RoomCore {
     return true;
   }
 
-  startGame() {
+  startGame(rule = null) {
     this.fillWithBots();
     this.resetReady();
     this.resetNewMatch();
@@ -132,10 +133,14 @@ export class RoomCore {
     this.room.pausedAt = null;
     this.room.stats = { wins: [0, 0, 0, 0], fan: [0, 0, 0, 0] };
     this.room.lastResultKey = '';
+    if (rule && typeof rule === 'object') {
+      this.room.rule = { ...DEFAULT_RULE, ...this.room.rule, ...rule };
+      this.room.rule.rounds = [8, 16, 32].includes(Number(this.room.rule.rounds)) ? Number(this.room.rule.rounds) : 8;
+    }
     const names = this.room.players.map((p, i) => p.name || '玩家' + (i + 1));
     const botSeats = [];
     for (let i = 0; i < 4; i++) if (this.room.players[i].isBot) botSeats.push(i);
-    this.room.engine = new Engine({ seed: (Date.now() & 0xffffffff) >>> 0, names, botSeats, dealer: 0, roundIndex: 1 });
+    this.room.engine = new Engine({ seed: (Date.now() & 0xffffffff) >>> 0, names, botSeats, dealer: 0, roundIndex: 1, rule: this.room.rule });
     this.room.engine.startHand();
     this.room.started = true;
     this.room.over = false;
@@ -151,7 +156,7 @@ export class RoomCore {
     snap.seats = this.room.players.map((p) => ({ name: p.name, isBot: p.isBot, online: p.online }));
     snap.canStart = seat === 0 && !this.room.started;
     snap.canNext = this.room.engine && this.room.engine.state.phase === 'finished';
-    snap.rounds = ROUNDS;
+    snap.rounds = this.room.rule.rounds || ROUNDS;
     snap.nextReady = this.room.nextReady.slice();
     snap.newMatch = this.room.newMatch.slice();
     snap.newMatchCount = this.room.newMatch.filter(Boolean).length;
@@ -171,7 +176,7 @@ export class RoomCore {
 
     if (s.phase === 'finished') {
       this.room.deadline = null;
-      if (s.roundIndex >= ROUNDS && !this.room.over) {
+      if (s.roundIndex >= (this.room.rule.rounds || ROUNDS) && !this.room.over) {
         this.room.over = true;
         this.room.version++;
       }
@@ -202,12 +207,12 @@ export class RoomCore {
       return;
     }
 
-    if (now - this.room.lastBotAt < 1100) return;
+    if (now - this.room.lastBotAt < 420) return;
     let botSeat = -1;
     if (s.phase === 'awaitingClaim' && s.pending) {
       botSeat = s.pending.outstanding.find((x) => this.room.players[x] && this.room.players[x].isBot);
       if (botSeat === undefined) botSeat = -1;
-    } else if (s.phase === 'awaitingDiscard' && this.room.players[s.current] && this.room.players[s.current].isBot) {
+    } else if ((s.phase === 'awaitingDiscard' || s.phase === 'finalDraw') && this.room.players[s.current] && this.room.players[s.current].isBot) {
       botSeat = s.current;
     }
     if (botSeat >= 0) {
@@ -226,7 +231,8 @@ export class RoomCore {
     if (url.pathname === '/api/room' && request.method === 'GET') {
       return json({
         code: room.code, started: room.started, over: room.over, paused: room.paused,
-        seats: room.players.map((p) => ({ name: p.name, isBot: p.isBot, online: p.online })), rounds: ROUNDS,
+        seats: room.players.map((p) => ({ name: p.name, isBot: p.isBot, online: p.online })), rounds: room.rule.rounds || ROUNDS,
+        rule: room.rule,
       });
     }
 
@@ -262,12 +268,12 @@ export class RoomCore {
       if (!room.engine) {
         return json({
           seat, code: room.code, started: false, version: room.version,
-          seats: room.players.map((p) => ({ name: p.name, isBot: p.isBot, online: p.online })), snapshot: null, rounds: ROUNDS,
+          seats: room.players.map((p) => ({ name: p.name, isBot: p.isBot, online: p.online })), snapshot: null, rounds: room.rule.rounds || ROUNDS,
         });
       }
       return json({
         seat, code: room.code, started: room.started, version: room.version,
-        snapshot: this.snapshotFor(seat), rounds: ROUNDS,
+        snapshot: this.snapshotFor(seat), rounds: room.rule.rounds || ROUNDS,
       });
     }
 
@@ -286,7 +292,7 @@ export class RoomCore {
       const seat = this.seatByToken(body.token || '');
       if (seat !== 0) return json({ error: '只有房主能开局' }, 403);
       if (room.started && !room.over) return json({ error: '已经开局了' }, 400);
-      this.startGame();
+      this.startGame(body.rule || room.rule);
       return json({ ok: true });
     }
 
@@ -298,7 +304,7 @@ export class RoomCore {
       if (!room.engine) return json({ error: '还没开局' }, 400);
       const s = room.engine.state;
       if (s.phase !== 'finished') return json({ error: '本局还没结束' }, 400);
-      if (s.roundIndex >= ROUNDS) {
+      if (s.roundIndex >= (room.rule.rounds || ROUNDS)) {
         room.over = true;
         room.version++;
         return json({ ok: true, over: true });

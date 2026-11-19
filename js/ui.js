@@ -3,7 +3,7 @@
    —— 严格实现 INTERFACE.md 的 15 个接口函数，函数名 / 参数不改。
    界面只读引擎状态，所有操作一律走 G.onDiscard / G.onAct。
    ============================================================ */
-import { TILE_SRC, label, RED_RAW, SEAT_LABEL } from './tiles.js';
+import { TILE_SRC, label, RED_RAW, FA_RAW, BAI_RAW, isPizi, SEAT_LABEL } from './tiles.js';
 import { waitingTiles } from './win.js';
 import { APP_VERSION, APP_RELEASED_AT, APP_RELEASES } from './version.js';
 
@@ -68,13 +68,21 @@ const num = (n) => ((n || 0) > 0 ? '+' + n : String(n == null ? 0 : n));
 
 function imgName(raw) {
   if (raw === RED_RAW) return 'Chun';
+  if (raw === FA_RAW) return 'Fa';
+  if (raw === BAI_RAW) return 'Bai';
   const suit = ['Man', 'Pin', 'Sou'][Math.floor(raw / 9)];
   return suit + ((raw % 9) + 1);
 }
 
-function tileHtml(raw, cls = '', extra = '') {
+function pointerHtml() {
+  return '<span class="discard-pointer"><i></i><b></b></span>';
+}
+
+function tileHtml(raw, cls = '', extra = '', withPointer = true) {
   const src = TILE_SRC[imgName(raw)] || '';
-  return `<div class="tile ${cls}" ${extra}><img src="${src}" alt="${esc(label(raw))}" draggable="false"></div>`;
+  const isLast = String(cls).split(/\s+/).includes('is-last');
+  const pointer = isLast && withPointer ? pointerHtml() : '';
+  return `<div class="tile ${cls}" ${extra}><img src="${src}" alt="${esc(label(raw))}" draggable="false">${pointer}</div>`;
 }
 
 function backHtml(style = '') {
@@ -82,7 +90,9 @@ function backHtml(style = '') {
 }
 
 function rotTile(raw, cls = '', extra = '') {
-  return `<div class="rot-slot">${tileHtml(raw, cls, extra)}</div>`;
+  const isLast = String(cls).split(/\s+/).includes('is-last');
+  const pointer = isLast ? pointerHtml() : '';
+  return `<div class="rot-slot${isLast ? ' is-last-slot' : ''}">${tileHtml(raw, cls, extra, false)}${pointer}</div>`;
 }
 
 /** 副露：碰 / 明杠 / 暗杠 / 回头笑 —— 杠一律「下 3 上 1，上面一张居中堆着」 */
@@ -184,6 +194,16 @@ export function initTable(opts) {
   const p = $('paused'); if (p) p.classList.remove('show');
   const rb = $('ready-bar'); if (rb) rb.classList.remove('is-on');
   showView('table');
+  const addonLayer = $('addon-layer');
+  if (addonLayer && !addonLayer.__bound) {
+    addonLayer.__bound = true;
+    addonLayer.addEventListener('click', (e) => {
+      const b = e.target.closest('.addon-btn');
+      if (!b) return;
+      const v = Number(b.getAttribute('data-addon'));
+      if (G.onAct) G.onAct({ type: 'addon', value: v });
+    });
+  }
   renderAll();
 }
 
@@ -294,6 +314,9 @@ function drawTable(s) {
   drawRiver($('river-left'), s.players[(me + 3) % 4], s, true);
   drawRiver($('river-right'), s.players[(me + 1) % 4], s, true);
 
+  /* 自由加增：四家选择面板 + 中央状态字 */
+  drawAddons(s);
+
   /* 手牌 / 按钮 / 提示 */
   drawHand(s);
   drawActions(s);
@@ -327,11 +350,16 @@ function plateHtml(s, seat, p) {
 
 /** 打出去的红中（皮子）：摆在露牌区，一张牌一张 */
 function redsHtml(p, rotated = false, big = false) {
-  const n = Math.min(4, (p && p.redsPlayed) || 0);
+  const n = Math.min(12, (p && p.redsPlayed) || 0);
   if (!n) return '';
-  const tc = big ? 'tile meld meld-big' : 'tile meld';
-  const one = rotated ? `<div class="rot-slot">${tileHtml(RED_RAW, 'tile meld')}</div>` : tileHtml(RED_RAW, tc);
-  return `<div class="meld-group is-reds${rotated ? ' rot' : ''}">${new Array(n).fill(one).join('')}${''}</div>`;
+  const kinds = [RED_RAW, FA_RAW, BAI_RAW];
+  const list = (p.piziTiles && p.piziTiles.length)
+    ? p.piziTiles.slice(0, 12)
+    : Array.from({ length: n }, (_, i) => kinds[i % 3]);
+  const one = (raw) => rotated
+    ? `<div class="rot-slot">${tileHtml(raw, 'tile meld')}</div>`
+    : tileHtml(raw, 'tile meld pizi');
+  return `<div class="meld-group is-reds${rotated ? ' rot' : ''}${big ? ' me-pizi' : ''}">${list.map(one).join('')}</div>`;
 }
 
 /* ---------------- 牌河 ---------------- */
@@ -350,7 +378,8 @@ function drawRiver(el, p, s, rotated) {
   const mark = (gi) => (gi === lastIdx ? 'is-last' : '');
 
   if (rotated) {
-    el.innerHTML = chunks.map((col, ci) => `<div class="col">${col.map((raw, k) => rotTile(raw, 'sm ' + mark(ci * per + k))).join('')}</div>`).join('');
+    const right = el.id === 'river-right';
+    el.innerHTML = chunks.map((col, ci) => `<div class="col">${col.map((raw, k) => rotTile(raw, 'sm ' + (right ? 'is-right ' : '') + mark(ci * per + k))).join('')}</div>`).join('');
   } else {
     el.innerHTML = chunks.map((row, ri) => `<div class="row">${row.map((raw, k) => tileHtml(raw, 'sm ' + mark(ri * per + k))).join('')}</div>`).join('');
   }
@@ -385,20 +414,8 @@ function drawHand(s) {
     html += tileHtml(raw, cls, `data-raw="${raw}" data-i="${drawnIdx}"`);
   }
   el.innerHTML = html;
-  fitHandRow();
 }
 
-/* 手牌 + 露牌整行过宽时自动缩小，保证不出屏 */
-function fitHandRow() {
-  const wrap = $('hand-wrap');
-  if (!wrap) return;
-  wrap.style.transformOrigin = '50% 100%';
-  wrap.style.transform = 'translateX(-50%)';
-  const w = wrap.scrollWidth;
-  const avail = 920;
-  const k = w > avail ? Math.max(0.78, avail / w) : 1;
-  wrap.style.transform = `translateX(-50%) scale(${k})`;
-}
 
 function allowedSet() {
   const s = UI.state;
@@ -414,7 +431,7 @@ function allowedSet() {
     for (const t of new Set(hand)) {
       const rest = hand.slice();
       rest.splice(rest.indexOf(t), 1);
-      if (rest.length % 3 === 1 && waitingTiles(rest, (p.melds || []).length, true).length) out.add(t);
+      if (rest.length % 3 === 1 && waitingTiles(rest, (p.melds || []).length, true, gangCount(p), pengCount(p)).length) out.add(t);
     }
     return out;
   }
@@ -442,6 +459,9 @@ function remainingOf(raw) {
   return Math.max(0, 4 - seen);
 }
 
+const gangCount = (p) => (p.melds || []).filter((m) => m.kind === 'gangExposed' || m.kind === 'gangConcealed' || m.kind === 'gangAdded').length;
+const pengCount = (p) => (p.melds || []).filter((m) => m.kind === 'peng').length;
+
 /* 右下角听牌提示：听哪几张、每张还剩几张；听牌后常显，别人回合也不消失 */
 function drawTing(s) {
   const el = $('ting-panel');
@@ -453,15 +473,16 @@ function drawTing(s) {
   if (p && UI.view === 'table') {
     const hand = p.hand || [];
     const melds = (p.melds || []).length;
+    const gc = gangCount(p), pc = pengCount(p);
     const calc = (idx) => {
       const rest = hand.slice();
       rest.splice(idx, 1);
-      if (rest.includes(RED_RAW)) return [];
-      return waitingTiles(rest, melds, true);
+      if (rest.some(isPizi)) return [];
+      return waitingTiles(rest, melds, true, gc, pc);
     };
     if (hand.length % 3 === 1) {
       /* 13 张定型手牌：不管轮到谁，只要听牌就常显听口 */
-      if (!hand.includes(RED_RAW)) waits = waitingTiles(hand, melds, true);
+      if (!hand.some(isPizi)) waits = waitingTiles(hand, melds, true, gc, pc);
     } else if (myTurn && hand.length % 3 === 2) {
       /* 碰完要自己选打哪张时，不算「默认打掉摸的这张」，等选中再提示 */
       const afterPeng = s.mustDiscard === UI.me || s.lastDrawn === null || s.lastDrawn === undefined;
@@ -510,6 +531,38 @@ function drawTing(s) {
   el.style.bottom = rows ? (84 + rows * 78 + (rows - 1) * 12 + 12) + 'px' : '22px';
 }
 
+
+/* ---------------- 自由加增 ---------------- */
+function drawAddons(s) {
+  const badges = $('addon-badges');
+  const layer = $('addon-layer');
+  if (!badges || !layer) return;
+  if (!s.addonEnabled) { badges.innerHTML = ''; layer.classList.remove('is-on'); layer.innerHTML = ''; return; }
+  const addons = s.addons || [0, 0, 0, 0];
+  const chosen = s.addonChosen || [true, true, true, true];
+  const txt = (v) => v > 0 ? `增${v}` : '不加增';
+  const pos = ['me', 'right', 'top', 'left'];
+  badges.innerHTML = pos.map((p, i) => {
+    const seat = (UI.me + i) % 4;
+    return `<span class="addon-badge ${p}${!chosen[seat] ? ' is-wait' : ''}">${chosen[seat] ? txt(addons[seat]) : '待选'}</span>`;
+  }).join('');
+
+  const mine = UI.me;
+  const active = s.phase === 'awaitingAddon' && !chosen[mine];
+  if (!active) { layer.classList.remove('is-on'); layer.innerHTML = ''; return; }
+  const names = (s.players || []).map((p) => p.name);
+  const status = names.map((n, i) => `${esc(n)}：${chosen[i] ? txt(addons[i]) : '未选'}`).join('　');
+  layer.innerHTML = `<div class="addon-card">
+    <div class="addon-title">第 ${s.roundIndex || 1} 局 · 自由加增</div>
+    <div class="addon-sub">份子 = 1 + 加增 + 皮子数。四家全部选完才发牌。</div>
+    <div class="addon-choices">
+      ${[0, 1, 2, 3].map((v) => `<button class="addon-btn${v === 0 ? ' ghost' : ''}" data-addon="${v}">${v === 0 ? '不加增' : '增 ' + v + ' 份'}</button>`).join('')}
+    </div>
+    <div class="addon-status">${status}</div>
+  </div>`;
+  layer.classList.add('is-on');
+}
+
 /* ---------------- 动作按钮 ---------------- */
 
 function drawActions(s) {
@@ -523,7 +576,7 @@ function drawActions(s) {
     if (pend.includes('peng')) acts.push({ type: 'peng', label: '碰', cls: 'peng' });
     if (pend.includes('gang')) acts.push({ type: 'gangExposed', label: '杠', cls: 'gang' });
     acts.push({ type: 'pass', label: '过', cls: 'pass' });
-  } else if (s.phase === 'awaitingDiscard' && s.current === UI.me) {
+  } else if ((s.phase === 'awaitingDiscard' || s.phase === 'finalDraw') && s.current === UI.me) {
     const raw = (G.getMyActions ? G.getMyActions() : []) || [];
     const gangs = [];
     let hasHu = false;
@@ -538,6 +591,7 @@ function drawActions(s) {
     } else if (gangs.length > 1) {
       acts.push({ type: 'gangPick', label: '杠', cls: 'gang', gangs });
     }
+    if (s.phase === 'finalDraw') acts.push({ type: 'finalPass', label: '过', cls: 'pass' });
     const p = s.players[UI.me];
     const decl = G.getDeclareOptions ? (G.getDeclareOptions() || []) : (s.myDeclareOptions || []);
     if (p && !p.declared && !p.declareIntent && !hasHu && decl.length > 0) {
@@ -566,7 +620,9 @@ function drawHint(s) {
   const pend = G.getPendingOptions ? G.getPendingOptions() : null;
   const myTurn = s.phase === 'awaitingDiscard' && s.current === UI.me;
 
-  if (s.phase === 'awaitingClaim' && pend && pend.length) {
+  if (s.phase === 'awaitingAddon') {
+    parts.push('自由加增 · 请选择本局加增份数');
+  } else if (s.phase === 'awaitingClaim' && pend && pend.length) {
     parts.push(`别家打出 <b>${esc(label(s.pending ? s.pending.tile : 0))}</b>，可以碰 / 杠 / 过`);
   } else if (myTurn) {
     if (UI.sel) parts.push(`已选中 <b>${esc(label(UI.sel.raw))}</b> · 再点一次打出`);
@@ -701,7 +757,7 @@ export function hideResult() {
 
 function resultCtx(payload) {
   const s = UI.state || {};
-  const r = (s.result && !payload.drawnGame && !payload.final) ? s.result : {};
+  const r = (s.result && !payload.drawnGame) ? s.result : {};
   const players = s.players || [];
   const names = payload.names || players.map((p) => p.name) || [];
   return { s, r, players, names };
@@ -739,7 +795,7 @@ function winHtml(payload) {
     <div class="result-sub">第 ${s.roundIndex || 1}/${G.totalRounds || 8} 局 · 自摸${mult != null ? ` · 总倍数 ${mult}` : ''}</div>
     ${fanChips ? `<div class="result-fans">${fanChips}</div>` : ''}
     <div class="result-hand">${handTiles}</div>
-    <div class="round-board">${roundBoard(scores, delta, names, { winner, reds: players.map((p) => p.redsPlayed || 0) })}</div>
+    <div class="round-board">${roundBoard(scores, delta, names, { winner, withDragons: !!s.withDragons, reds: players.map((p) => p.redsPlayed || 0) })}</div>
     ${readyStrip(payload.ready, names, payload.mySeat)}
     <div class="result-actions">
       <button class="big-btn" id="res-next">下 一 局</button>
@@ -760,7 +816,7 @@ function roundBoard(scores, delta, names, opt = {}) {
       <span class="rb-name">${esc(names[i] || ('座位' + i))}${isWin ? '<i class="rb-hu">胡</i>' : ''}</span>
       <span class="rb-stat"><em>本局</em><b class="${fen > 0 ? 'pos' : fen < 0 ? 'neg' : ''}">${num(fen)} 分</b></span>
       <span class="rb-stat"><em>总分</em><b class="${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${num(v)} 分</b></span>
-      <span class="rb-stat rb-red"><em>红中</em><b>${pr} 个</b></span>
+      <span class="rb-stat rb-red"><em>${opt.withDragons ? '皮子' : '红中'}</em><b>${pr} 个</b></span>
     </div>`;
   }).join('');
 }
@@ -778,7 +834,7 @@ function drawnHtml(payload) {
   return `
     <div class="result-title">流 局</div>
     <div class="result-sub">牌墙摸完 · 庄家不变 · 第 ${s.roundIndex || 1}/${G.totalRounds || 8} 局</div>
-    <div class="round-board">${roundBoard(scores, delta, names, { winner: -1, reds: (players || []).map((p) => p.redsPlayed || 0) })}</div>
+    <div class="round-board">${roundBoard(scores, delta, names, { winner: -1, withDragons: !!s.withDragons, reds: (players || []).map((p) => p.redsPlayed || 0) })}</div>
     ${readyStrip(payload.ready, names, payload.mySeat)}
     <div class="result-actions">
       <button class="big-btn" id="res-next">下 一 局</button>
@@ -787,7 +843,18 @@ function drawnHtml(payload) {
 }
 
 function finalHtml(payload) {
-  const { s, players, names } = resultCtx(payload);
+  const { s, r, players, names } = resultCtx(payload);
+  const lastWinner = (payload.winnerSeat != null ? payload.winnerSeat : (r && r.winner != null ? r.winner : null));
+  const lastHand = payload.hand || (r && r.hand) || [];
+  const lastMelds = payload.melds || (r && r.melds) || [];
+  const lastFans = (r && r.fans) || payload.fans || [];
+  const winnerBlock = (lastWinner != null && lastHand.length)
+    ? `<div class="final-winner">
+        <div class="final-winner-title">${esc(names[lastWinner] || ('座位' + lastWinner))} 自摸</div>
+        <div class="final-winner-fans">${lastFans.map((f) => `<span class="fan-chip${f.add ? ' add' : ''}">${esc(f.name)} <b>${f.add ? '+' : '×'}${f.mult}</b></span>`).join('')}</div>
+        <div class="result-hand">${lastHand.map((t) => tileHtml(t, '')).join('')}${lastMelds.map((m) => meldHtml(m)).join('')}</div>
+      </div>`
+    : '';
   const scores = payload.scores || players.map((p) => p.score);
   const st = payload.stats || UI.matchStats || { wins: [], fan: [] };
   const ranked = payload.ranked || (scores || []).map((score, seat) => ({ seat, name: names[seat] || ('座位' + seat), score })).sort((a, b) => b.score - a.score);
@@ -805,6 +872,7 @@ function finalHtml(payload) {
   return `
     <div class="result-title">本 场 结 束</div>
     <div class="result-sub">共 ${payload.rounds || G.totalRounds || 8} 局</div>
+    ${winnerBlock}
     <table class="result-table">
       <thead><tr><th style="width:56px">名次</th><th>玩家</th><th style="width:80px">胡局</th><th style="width:80px">总番</th><th style="width:100px">总分</th></tr></thead>
       <tbody>${rows}</tbody>
@@ -922,15 +990,29 @@ export function renderScoreboard() {
 
 /* ---------------- 掉线 ---------------- */
 
-export function setPaused(names, waiting) {
-  const on = !!waiting && Array.isArray(names) && names.length > 0;
+export function setPaused(names, waiting, opts = {}) {
+  const on = !!waiting && (Array.isArray(names) ? names.length > 0 : true);
   const box = $('paused');
   if (!box) return;
   UI.paused = on;
   box.classList.toggle('show', on);
-  if (on) {
-    const t = $('pause-text');
-    if (t) t.innerHTML = `${esc(names.join('、'))} 掉线<br><span style="font-size:13px;opacity:.6">全场暂停，等待重连…</span>`;
+  if (!on) {
+    const rb = $('pause-reconnect'); if (rb) { rb.classList.remove('is-on'); rb.onclick = null; }
+    return;
+  }
+  const roomEl = $('pause-room');
+  const room = String(opts.roomCode || (($('room-code') || {}).textContent || '') || '').trim();
+  if (roomEl) roomEl.textContent = room ? `房号 ${room}` : '';
+  const t = $('pause-text');
+  if (t) {
+    const who = Array.isArray(names) && names.length ? `${names.join('、')} 掉线` : '网络连接中断';
+    t.innerHTML = `${esc(who)}<br><span style="font-size:13px;opacity:.6">全场暂停，等待重连…</span>`;
+  }
+  const rb = $('pause-reconnect');
+  if (rb) {
+    const can = !!opts.canRefresh;
+    rb.classList.toggle('is-on', can);
+    rb.onclick = can ? (opts.onRefresh || (() => { if (window.__jianliReconnect) window.__jianliReconnect(); })) : null;
   }
 }
 

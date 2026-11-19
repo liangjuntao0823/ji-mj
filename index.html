@@ -24,11 +24,11 @@
 
         <div class="home-left">
           <div class="home-eyebrow">湖北 · 监利 · 红中皮子</div>
-          <div class="home-version" id="home-version">v1.0.9</div>
+          <div class="home-version" id="home-version">v1.1.0 · 2026-11-19</div>
           <h1 class="home-title">监利红中<em>MAHJONG</em></h1>
           <p class="home-desc">
-            112 张牌，<b>红中当皮必打</b>，<b>只许自摸</b>，碰杠四档算分。
-            一桌四人，八局定输赢。
+            112 张牌（勾选中发白 120 张），<b>红中当皮必打</b>，<b>只许自摸</b>，碰杠四档算分。
+            一桌四人，局数自选。
           </p>
           <div class="home-tiles" id="home-tiles"></div>
         </div>
@@ -49,7 +49,7 @@
               </span>
               <span>
                 <span class="mb-main">单机对局</span>
-                <span class="mb-sub">我 + 三台机器人 · 八局一场</span>
+                <span class="mb-sub" id="single-sub">我 + 三台机器人 · 8 局一场</span>
               </span>
             </button>
 
@@ -73,6 +73,20 @@
               </span>
             </button>
 
+            <div class="home-config">
+              <div class="cfg-line">
+                <span class="cfg-label">局数</span>
+                <div class="cfg-seg" id="cfg-rounds">
+                  <button data-rounds="8" class="is-on">8 局</button>
+                  <button data-rounds="16">16 局</button>
+                  <button data-rounds="32">32 局</button>
+                </div>
+              </div>
+              <div class="cfg-line">
+                <label class="cfg-check"><input type="checkbox" id="cfg-dragons"><i></i><span>中发白</span><em>发财/白板同红中</em></label>
+                <label class="cfg-check"><input type="checkbox" id="cfg-addon"><i></i><span>自由加增</span><em>每局可选 +0~3 份</em></label>
+              </div>
+            </div>
             <div class="menu-foot">
               <div class="menu-links">
                 <button class="rule-link" id="home-rules">规则与番型</button>
@@ -90,10 +104,10 @@
           </div>
 
           <div class="rules-strip">
-            <div><b>112</b><span>张牌</span></div>
-            <div><b>8</b><span>局一场</span></div>
+            <div><b id="home-stat-tiles">112</b><span>张牌</span></div>
+            <div><b id="home-stat-rounds">8</b><span>局一场</span></div>
             <div><b>自摸</b><span>只能自摸</span></div>
-            <div><b>×8</b><span>红中份子上限</span></div>
+            <div><b id="home-stat-cap">×8</b><span>皮子份子上限</span></div>
           </div>
         </div>
       </section>
@@ -157,6 +171,7 @@
             <span class="seat-arrow arrow-right" id="arrow-right"></span>
             <span class="seat-arrow arrow-bottom" id="arrow-bottom"></span>
             <span class="seat-arrow arrow-left" id="arrow-left"></span>
+            <div class="addon-badges" id="addon-badges"></div>
             <div class="center-timer" id="center-timer"></div>
             <div class="gang-cover" id="gang-cover"></div>
           </div>
@@ -175,6 +190,7 @@
         <div class="declare-zone" id="declare-zone"></div>
         <div class="ting-panel" id="ting-panel"></div>
         <div class="actions" id="actions"></div>
+        <div class="addon-layer" id="addon-layer"></div>
       </section>
 
       <!-- ===== 视图：联机大厅（net.js / p2p.js 会读写这些元素） ===== -->
@@ -206,7 +222,9 @@
       <div id="paused">
         <div class="pause-card">
           <div class="pause-title">对局暂停</div>
+          <div class="pause-room" id="pause-room"></div>
           <div class="pause-text" id="pause-text">等待玩家重连…</div>
+          <button class="pause-reconnect" id="pause-reconnect">刷新重连</button>
           <div class="pause-spin"></div>
         </div>
       </div>
@@ -221,18 +239,18 @@
       <div id="rules-modal">
         <div class="rules-card">
           <h3>监利红中 · 规则与番型</h3>
-          <div class="rules-lead">112 张牌 · 只许自摸 · 红中当皮必打</div>
+          <div class="rules-lead">112 张牌（勾选中发白 120 张）· 只许自摸 · 皮子必打 · 局数自选</div>
           <div class="rules-grid">
             <div class="rules-block">
               <h4>牌张与座次</h4>
-              <p>万 / 筒 / 条各 1–9 每种 4 张，加 <b>4 张红中</b>，共 112 张。</p>
+              <p>万 / 筒 / 条各 1–9 每种 4 张，默认加 <b>4 张红中</b>，共 112 张；勾选「中发白」后加发财、白板各 4 张，共 <b>120 张</b>。</p>
               <p>庄家起手 14 张，其余 13 张；庄家先打，按东→南→西→北轮转。</p>
             </div>
             <div class="rules-block">
-              <h4>红中 = 皮子</h4>
-              <p>摸到红中<b>不能留手</b>，直接打出并从尾牌补一张。</p>
-              <p>手上带红中<b>不能胡</b>；红中打出张数决定份子倍数，最高 ×8。</p>
-              <p>一家打满 4 张红中，按暗杠记 <b>15 分</b>。</p>
+              <h4>皮子（红中 / 中发白）</h4>
+              <p>摸到皮子<b>不能留手</b>，直接打出并从尾牌补一张；中发白模式下发财、白板与红中一样算皮子。</p>
+              <p>手上带皮子<b>不能胡</b>；皮子打出张数决定份子倍数，默认最高 ×8，中发白模式最高 ×12。</p>
+              <p>一家打满 4 张皮子，按暗杠记 <b>15 分</b>。</p>
             </div>
             <div class="rules-block">
               <h4>碰与四种杠</h4>
@@ -248,22 +266,25 @@
             </div>
             <div class="rules-block">
               <h4>算分</h4>
-              <p>基础分 = 10 × 总倍数；某家应付 = 基础分 ×（1+赢家红中数）×（1+付家红中数）。</p>
+              <p>基础分 = 10 × 总倍数；某家应付 = 基础分 ×（1+加增+赢家皮子数）×（1+加增+付家皮子数）。</p>
+              <p>勾选「自由加增」后，每小局四家各选不加增 / 增1 / 增2 / 增3，四家选完才发牌。</p>
               <p>只许自摸，<b>三家各付</b>；任何一局加减总和为 0。</p>
             </div>
             <div class="rules-block">
               <h4>流程与时限</h4>
               <p>出牌 30 秒、碰杠应答 30 秒，超时自动出牌 / 自动过。</p>
-              <p>牌墙摸完流局，庄家不变，杠分照结；一场 <b>8 局</b>，打完出排名。</p>
+              <p>最后 4 张各摸各胡：四家各抓一张只摸不打，抓到皮子摆出但不补牌，可暗杠、回头笑、胡牌。</p>
+              <p>创建房间可选 <b>8 / 16 / 32 局</b>，打完出排名；最后一局结算会展示赢家番型和完整手牌。</p>
               <p>联机时四人齐点「下一局」才继续；整场结束四人齐点才重开。</p>
             </div>
             <div class="rules-block rules-wide">
               <h4>联机与断线重连</h4>
               <p>名字必填：局域网第一个进房的是<b>房主（东家）</b>，人不满开局时空位自动补机器人；手机 P2P 由房主建房出 <b>6 位房号</b>，朋友填名字 + 房号加入。</p>
               <p>P2P 先直连，跨省 / 对称 NAT 连不上会自动走 <b>Cloudflare TURN 中继</b>（实时换短期凭证）。</p>
-              <p>有人掉线（局域网 12 秒无心跳 / P2P 连接断开）→ <b>全场暂停</b>：倒计时冻结、机器人停手、自动弹记分板并提示「XX 掉线，等待重连」。</p>
+              <p>有人掉线（局域网 12 秒无心跳 / P2P 连接断开）→ <b>全场暂停</b>：倒计时冻结、机器人停手、弹窗显示房号并提示「XX 掉线，等待重连」。</p>
+              <p>掉线的人回来后可点「刷新重连」，按原房号、原名字自动回原座位。</p>
               <p>重连：<b>同一个名字 + 同一个房号</b>回来就坐原座位、手牌原样继续（局域网刷新页面也能直接回座）；名字或房号不对会被当成新人。</p>
-              <p>打满 8 局 → 排名表；<b>所有真人各点一次「再来一场」</b>才开新一场，分数和胡局/番数清零。</p>
+              <p>打满所选局数 → 排名表；<b>所有真人各点一次「再来一场」</b>才开新一场，分数和胡局/番数清零。</p>
             </div>
           </div>
           <button class="rules-close" id="rules-close">知道了</button>

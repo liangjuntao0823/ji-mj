@@ -1,5 +1,5 @@
 /* 单机对局控制 */
-import { Engine } from './engine.js';
+import { Engine, DEFAULT_RULE } from './engine.js';
 import { nextAction, discardCandidate } from './bot.js';
 import { label, SEAT_LABEL } from './tiles.js';
 import {
@@ -32,6 +32,39 @@ const el = (id) => document.getElementById(id) || null;
 /* 首页按钮是 UI 的东西：新 UI 自己放按钮，然后调 window.JianliGame.startSingle() / openLAN() / openP2P()。
  * 如果 UI 提供了同 id 的按钮，这里会自动绑上，不需要额外代码。 */
 const on = (id, fn) => { const n = el(id); if (n) n.addEventListener('click', fn); };
+
+/* 首页房间设置：局数 / 中发白 / 自由加增 */
+const HOME_RULE = { rounds: 8, withDragons: false, addonEnabled: false };
+function readHomeRule() {
+  const seg = el('cfg-rounds');
+  if (seg) {
+    const on = seg.querySelector('.is-on');
+    HOME_RULE.rounds = Number(on && on.dataset.rounds) || 8;
+  }
+  HOME_RULE.withDragons = !!(el('cfg-dragons') && el('cfg-dragons').checked);
+  HOME_RULE.addonEnabled = !!(el('cfg-addon') && el('cfg-addon').checked);
+  const singleSub = el('single-sub');
+  if (singleSub) singleSub.textContent = `我 + 三台机器人 · ${HOME_RULE.rounds} 局一场`;
+  const statRounds = el('home-stat-rounds');
+  if (statRounds) statRounds.textContent = String(HOME_RULE.rounds);
+  const statTiles = el('home-stat-tiles');
+  if (statTiles) statTiles.textContent = HOME_RULE.withDragons ? '120' : '112';
+  const statCap = el('home-stat-cap');
+  if (statCap) statCap.textContent = HOME_RULE.withDragons ? '×12' : '×8';
+  window.JIANLI_HOME_RULE = { ...HOME_RULE };
+  return { ...HOME_RULE };
+}
+(function bindHomeRule() {
+  const seg = el('cfg-rounds');
+  if (seg) seg.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-rounds]');
+    if (!b) return;
+    seg.querySelectorAll('button').forEach((x) => x.classList.toggle('is-on', x === b));
+    readHomeRule();
+  });
+  ['cfg-dragons', 'cfg-addon'].forEach((id) => { const n = el(id); if (n) n.addEventListener('change', readHomeRule); });
+  readHomeRule();
+})();
 
 /* ---------------- 入口 ---------------- */
 initHome();
@@ -73,6 +106,7 @@ function setNetMode(mode) {
 /* action: 'create' 开一桌当房主；'join' 进别人的房间 */
 function openNetwork(action = 'join') {
   const mode = action === 'create' ? 'create' : 'join';
+  readHomeRule();
   if (NET_MODE === 'server') {
     if (!SERVER_URL) {
       showToast('公网服务器地址还没配置');
@@ -100,7 +134,9 @@ on('btn-lan', () => openNetwork('create'));
 
 function startSingle() {
   const seed = (Date.now() & 0xffffffff) >>> 0;
-  const e = new Engine({ seed, names: S.names, botSeats: [1, 2, 3], dealer: 0, roundIndex: 1 });
+  const cfg = readHomeRule();
+  S.rounds = cfg.rounds;
+  const e = new Engine({ seed, names: S.names, botSeats: [1, 2, 3], dealer: 0, roundIndex: 1, rule: { ...DEFAULT_RULE, rounds: cfg.rounds, withDragons: cfg.withDragons, addonEnabled: cfg.addonEnabled } });
   S.engine = e;
   S.mode = 'single';
   S.humanSeat = 0;
@@ -166,7 +202,7 @@ function toastEvents(events) {
   for (const ev of events) {
     switch (ev.type) {
       case 'redDiscarded':
-        showToast(`${s.players[ev.seat].name} 打出油（第 ${ev.count} 张）`);
+        showToast(`${s.players[ev.seat].name} 打出皮子（第 ${ev.count} 张）`);
         break;
       case 'peng':
         showToast(`${s.players[ev.seat].name} 碰 ${label(ev.tile)}`);
@@ -189,7 +225,7 @@ function toastEvents(events) {
   }
 }
 
-const reasonName = (r) => ({ selfDraw: '自摸', pointGang: '点杠', concealedGang: '暗杠', addedGang: '蓄杠', redGang: '油暗杠' }[r] || r);
+const reasonName = (r) => ({ selfDraw: '自摸', pointGang: '点杠', concealedGang: '暗杠', addedGang: '蓄杠', redGang: '皮子暗杠' }[r] || r);
 
 /* ---------------- 调度 ---------------- */
 
@@ -198,6 +234,14 @@ function schedule() {
   const s = S.engine.state;
   if (!S.running) return;
 
+  if (s.phase === 'awaitingAddon') { stopTimer(); return; }
+  if (s.phase === 'finalDraw' && s.players[s.current] && s.players[s.current].isBot) {
+    S.botTimer = setTimeout(() => {
+      const a = nextAction(S.engine, s.current) || { type: 'finalPass' };
+      act(a, s.current);
+    }, BOT_DELAY);
+    return;
+  }
   if (s.phase === 'finished') {
     stopTimer();
     setTimeout(showHandResult, 950);
@@ -342,6 +386,10 @@ function showFinal() {
     ranked,
     mySeat: S.humanSeat,
     rounds: S.rounds,
+    winnerSeat: (!s.drawnGame && s.result && s.result.winner != null) ? s.result.winner : null,
+    hand: (!s.drawnGame && s.result && s.result.hand) || null,
+    melds: (!s.drawnGame && s.result && s.result.melds) || null,
+    fans: (!s.drawnGame && s.result && s.result.fans) || null,
   });
 }
 

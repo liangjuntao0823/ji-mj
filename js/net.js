@@ -41,6 +41,7 @@ function clearToken() {
 /* ---------------- 入口 ---------------- */
 
 export function openLAN(serverBase, mode = 'join') {
+  window.__jianliReconnect = reconnectSelf;
   NET.entryMode = mode === 'create' ? 'create' : 'join';
   window.__lobbyBack = exitLAN;
 
@@ -104,7 +105,7 @@ el('lobby-join').addEventListener('click', async () => {
 
 function startPolling() {
   if (NET.pollTimer) clearInterval(NET.pollTimer);
-  NET.pollTimer = setInterval(pollOnce, 400);
+  NET.pollTimer = setInterval(pollOnce, 120);
   pollOnce();
   if (!NET.localTimer) {
     NET.localTimer = setInterval(() => {
@@ -129,6 +130,7 @@ async function pollOnce() {
     r = await api('/api/state?token=' + encodeURIComponent(NET.token));
   } catch {
     el('lobby-status').textContent = '服务器连不上了';
+    if (NET.inGame) setPaused([NET.name || '我'], true, { roomCode: NET.code, canRefresh: true, onRefresh: reconnectSelf });
     return;
   }
   if (r.error) {
@@ -151,7 +153,7 @@ async function pollOnce() {
     NET.over = snap.over;
     if (snap.phase !== NET.lastPhase) NET.lastPhase = snap.phase;
     /* 掉线暂停：弹浮窗 + 自动开记分板，恢复后自动收起 */
-    setPaused(snap.offlineNames || [], !!snap.paused);
+    setPaused(snap.offlineNames || [], !!snap.paused, { roomCode: NET.code, canRefresh: false });
     if (snap.paused && !NET.boardForced) { NET.boardForced = true; showBoard(); }
     else if (!snap.paused && NET.boardForced) { NET.boardForced = false; hideBoard(); }
     if (snap.phase !== 'finished') {
@@ -220,13 +222,13 @@ function renderLobby(r) {
       const b = document.createElement('button');
       b.className = 'big-btn';
       b.textContent = '开始对局';
-      b.onclick = async () => { await api('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: NET.token }) }); pollOnce(); };
+      b.onclick = async () => { await api('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: NET.token, rule: window.JIANLI_HOME_RULE || null }) }); pollOnce(); };
       actions.append(b);
     } else if (NET.seat === 0) {
       const b = document.createElement('button');
       b.className = 'big-btn';
       b.textContent = '开始对局（空位补机器人）';
-      b.onclick = async () => { await api('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: NET.token }) }); pollOnce(); };
+      b.onclick = async () => { await api('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: NET.token, rule: window.JIANLI_HOME_RULE || null }) }); pollOnce(); };
       actions.append(b);
     } else {
       const t = document.createElement('div');
@@ -245,7 +247,7 @@ function enterGame() {
   initTable({
     humanSeat: NET.seat,
     mode: BASE ? 'net' : 'lan',
-    totalRounds: 8,
+    totalRounds: (NET.snap && NET.snap.rounds) || 8,
     getState: () => NET.snap,
     getMyActions: () => (NET.snap && NET.snap.myActions) || [],
     getPendingOptions: () => (NET.snap && NET.snap.pending ? NET.snap.pending.myOptions : null),
@@ -280,6 +282,36 @@ function nextHand() {
       pollOnce();
     });
 }
+
+async function reconnectSelf() {
+  if (!NET.token || !BASE) { window.location.reload(); return; }
+  try {
+    const r = await api('/api/state?token=' + encodeURIComponent(NET.token));
+    if (r && !r.error) {
+      NET.version = -1;
+      setPaused([], false);
+      await pollOnce();
+      if (NET.inGame) startPolling();
+      return;
+    }
+  } catch (e) {}
+  // token 失效时，用保存的名字重新进同一个公网房间
+  try {
+    const rr = await api('/api/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: NET.name || localStorage.getItem('jianli_name') || '我' }) });
+    if (!rr.error) {
+      NET.token = rr.token; NET.seat = rr.seat;
+      localStorage.setItem('jianli_token', rr.token);
+      localStorage.setItem('jianli_token_base', BASE);
+      NET.version = -1;
+      setPaused([], false);
+      await pollOnce();
+      startPolling();
+      return;
+    }
+  } catch (e) {}
+  el('pause-text').innerHTML = '还是连不上，请检查网络后再点一次「刷新重连」';
+}
+window.__jianliReconnect = reconnectSelf;
 
 function exitLAN() {
   setRoomCode(null);
@@ -320,6 +352,10 @@ function maybeShowResult() {
       rounds: snap.rounds || 8,
       mySeat,
       stats: snap.stats,
+      winnerSeat: (!snap.drawnGame && snap.result && snap.result.winner != null) ? snap.result.winner : null,
+      hand: (!snap.drawnGame && snap.result && snap.result.hand) || null,
+      melds: (!snap.drawnGame && snap.result && snap.result.melds) || null,
+      fans: (!snap.drawnGame && snap.result && snap.result.fans) || null,
     });
     return;
   }
@@ -348,7 +384,7 @@ function maybeShowResult() {
   const multText = r.mult ? ` ×${r.mult}` : '';
   showResult({
     title: `${winner.name} 自摸`,
-    subtitle: `${fanText}${multText} · 每家 ${r.base} 分起 · 第 ${snap.roundIndex}/8 局`,
+    subtitle: `${fanText}${multText} · 每家 ${r.base} 分起 · 第 ${snap.roundIndex}/${snap.rounds || 8} 局`,
     winnerSeat: r.winner,
     hand: r.hand,
     melds: r.melds,

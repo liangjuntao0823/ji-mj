@@ -71,13 +71,43 @@ function canFormSets(counts, sets) {
   return false;
 }
 
-/** 听牌提示：返回所有能和的牌 raw（只用于 UI，不参与裁决） */
-export function waitingTiles(hand, meldCount = 0, allowSevenPairs = true) {
-  if (hand.some((t) => t === RED_RAW)) return [];
+/** 听牌提示：返回所有能和的牌 raw（只用于 UI，不参与裁决）
+ *  gangCount = 已副露的杠数；pengCount = 已副露的碰数（清八对不允许带碰）
+ *  清八对 / 豪华清八对：至少两个杠（含手里没杠出来的四张），余牌全部成对。
+ */
+export function waitingTiles(hand, meldCount = 0, allowSevenPairs = true, gangCount = 0, pengCount = 0) {
+  if (hand.some((t) => t >= 27)) return [];
   const out = [];
   for (const kind of ALL_KINDS) {
-    if (kind === RED_RAW) continue;
-    if (isWinning([...hand, kind], meldCount, allowSevenPairs)) out.push(kind);
+    if (kind >= 27) continue;
+    if (isWinning([...hand, kind], meldCount, allowSevenPairs)) { out.push(kind); continue; }
+    if (pengCount === 0 && isBaDuiShape([...hand, kind], gangCount)) out.push(kind);
   }
-  return out;
+  return unique(out);
+}
+
+function unique(list) {
+  return [...new Set(list)].sort((a, b) => a - b);
+}
+
+/**
+ * 清八对 / 豪华清八对的和牌形状：
+ * 至少两个杠（副露的杠 + 手里攥着的四张同牌），余下手牌全部成对。
+ * hand 只算手牌；melds 里的牌不传进来，只传杠/碰数量。
+ */
+export function isBaDuiShape(hand, gangCount = 0) {
+  if (!Array.isArray(hand) || hand.some((t) => t >= 27)) return false;
+  const c = new Array(27).fill(0);
+  for (const t of hand) c[t]++;
+  const quads = [];
+  for (let i = 0; i < 27; i++) if (c[i] >= 4) quads.push(i);
+  for (const t of quads) c[t] -= 4;
+  const totalGangs = gangCount + quads.length;
+  if (totalGangs < 2) return false;
+  let rest = 0;
+  for (let i = 0; i < 27; i++) {
+    if (c[i] % 2 !== 0) return false;
+    rest += c[i];
+  }
+  return rest >= 4;
 }

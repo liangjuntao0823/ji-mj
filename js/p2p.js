@@ -93,6 +93,7 @@ const P = {
   clockOffset: 0,      // 房主时钟 - 本机时钟（毫秒），用来对齐倒计时
   reconnectTimer: null,
   reconnectTry: 0,
+  rule: { ...DEFAULT_RULE, rounds: ROUNDS },
 };
 
 const el = (id) => document.getElementById(id);
@@ -168,6 +169,8 @@ async function createRoom() {
   await ensureIce();
   P.role = 'host';
   P.seat = 0;
+  const cfg = window.JIANLI_HOME_RULE || {};
+  P.rule = { ...DEFAULT_RULE, rounds: [8, 16, 32].includes(Number(cfg.rounds)) ? Number(cfg.rounds) : ROUNDS, withDragons: !!cfg.withDragons, addonEnabled: !!cfg.addonEnabled };
   P.players = [{ name, isBot: false, online: true }];
   P.version++;
 
@@ -380,7 +383,7 @@ function startHostGame() {
     const names = P.players.map((p, i) => (p && p.name) || '玩家' + (i + 1));
     const botSeats = [];
     for (let i = 0; i < 4; i++) if (P.players[i] && P.players[i].isBot) botSeats.push(i);
-    P.engine = new Engine({ seed: (Date.now() & 0xffffffff) >>> 0, names, botSeats, dealer: 0, roundIndex: 1 });
+    P.engine = new Engine({ seed: (Date.now() & 0xffffffff) >>> 0, names, botSeats, dealer: 0, roundIndex: 1, rule: P.rule });
     P.engine.startHand();
   } else {
     P.engine.startNextHand((Date.now() & 0xffffffff) >>> 0);
@@ -400,7 +403,7 @@ function startHostGame() {
 /* 有人点了「下一局」：记下来，广播，全员都点了才真的开下一局 */
 function markReady(seat) {
   if (!P.engine || P.engine.state.phase !== 'finished') return;
-  if (P.engine.state.roundIndex >= ROUNDS) return;
+  if (P.engine.state.roundIndex >= (P.rule.rounds || ROUNDS)) return;
   if (!P.nextReady) P.nextReady = [false, false, false, false];
   P.nextReady[seat] = true;
   P.version++;
@@ -420,7 +423,7 @@ function allReady() {
 function doNextHand() {
   P.nextReady = [false, false, false, false];
   if (!P.engine || P.engine.state.phase !== 'finished') return;
-  if (P.engine.state.roundIndex >= ROUNDS) {
+  if (P.engine.state.roundIndex >= (P.rule.rounds || ROUNDS)) {
     P.over = true;
     P.version++;
     hostPush();
@@ -473,7 +476,7 @@ function doNewMatch() {
 
 function startHostLoop() {
   if (P.loop) clearInterval(P.loop);
-  P.loop = setInterval(hostTick, 250);
+  P.loop = setInterval(hostTick, 120);
 }
 
 /* 累计「胡局 / 总番」，供最终记分板用（P2P 房主算，广播给客人） */
@@ -498,7 +501,7 @@ function hostTick() {
   heartbeatGuests(now);
   if (s.phase === 'finished') {
     P.deadline = null;
-    if (s.roundIndex >= ROUNDS && !P.over) {   // 打满 8 局直接出总排名，等四人齐点再来一场
+    if (s.roundIndex >= (P.rule.rounds || ROUNDS) && !P.over) {   // 打满 8 局直接出总排名，等四人齐点再来一场
       P.over = true;
       P.version++;
       hostPush();
@@ -512,7 +515,7 @@ function hostTick() {
   const offlineNames = P.players.filter((p) => p && !p.isBot && !p.online).map((p) => p.name);
   if (offlineNames.length) {
     if (P.deadline) { P.deadline.pausedAt = P.deadline.pausedAt || now; }
-    setPaused(offlineNames, true);
+    setPaused(offlineNames, true, { roomCode: P.code, canRefresh: false });
     if (!P.boardForced) { P.boardForced = true; showBoard(); }
     hostPush();
     return;
@@ -555,12 +558,12 @@ function hostTick() {
     return;
   }
 
-  if (now - P.lastBotAt >= 1100) {
+  if (now - P.lastBotAt >= 420) {
     let botSeat = -1;
     if (s.phase === 'awaitingClaim' && s.pending) {
       const x = s.pending.outstanding.find((i) => P.players[i] && P.players[i].isBot);
       if (x !== undefined) botSeat = x;
-    } else if (s.phase === 'awaitingDiscard' && P.players[s.current] && P.players[s.current].isBot) {
+    } else if ((s.phase === 'awaitingDiscard' || s.phase === 'finalDraw') && P.players[s.current] && P.players[s.current].isBot) {
       botSeat = s.current;
     }
     if (botSeat >= 0) {
@@ -586,12 +589,12 @@ function snapshotFor(seat) {
   snap.seats = P.players.map((p) => ({ name: p && p.name, isBot: !!(p && p.isBot), online: !!(p && p.online) }));
   snap.canStart = seat === 0 && !P.started;
   snap.canNext = !!(P.engine && P.engine.state.phase === 'finished');
-  snap.rounds = ROUNDS;
+  snap.rounds = P.rule.rounds || ROUNDS;
   snap.code = P.code;
   snap.nextReady = (P.nextReady || [false, false, false, false]).slice();
   snap.paused = P.players.some((p) => p && !p.isBot && !p.online);
   snap.offlineNames = P.players.filter((p) => p && !p.isBot && !p.online).map((p) => p.name);
-  snap.seriesOver = !!(P.engine && P.engine.state.phase === 'finished' && P.engine.state.roundIndex >= ROUNDS);
+  snap.seriesOver = !!(P.engine && P.engine.state.phase === 'finished' && P.engine.state.roundIndex >= (P.rule.rounds || ROUNDS));
   snap.stats = { wins: (P.stats.wins || []).slice(), fan: (P.stats.fan || []).slice() };
   snap.newMatch = (P.newMatch || [false, false, false, false]).slice();
   snap.newMatchCount = (P.newMatch || []).filter((v, i) => v && P.players[i] && !P.players[i].isBot).length;
@@ -662,6 +665,7 @@ function guestConnect() {
       clearTimeout(P.joinTimer);
       P.joinTimer = null;
       P.reconnectTry = 0;
+      setPaused([], false);
       status('');
       if (!P.inGame) { setEntryVisible(false); showRoomCode(); renderGuestSeats(); }
       /* 握手：房主在连接刚建立时推的 hello/state 可能丢，这里主动拉，直到拿到座位号为止 */
@@ -719,11 +723,22 @@ function guestRetry(reason) {
     status('直连没通，改用中继重连…');
   }
   status(`${reason || '连接断了'}，正在重连房主…（第 ${P.reconnectTry} 次）`);
+  if (P.inGame) setPaused([P.name || '我'], true, { roomCode: P.code, canRefresh: true, onRefresh: guestReconnectNow });
   P.reconnectTimer = setTimeout(() => {
     P.reconnectTimer = null;
     if (P.role === 'guest') guestConnect();
   }, delay);
 }
+
+function guestReconnectNow() {
+  clearTimeout(P.reconnectTimer);
+  P.reconnectTimer = null;
+  P.reconnectTry = 0;
+  if (P.role !== 'guest') return;
+  const t = el('pause-text'); if (t) t.innerHTML = '正在按原房号和名字重连…';
+  guestConnect();
+}
+window.__jianliReconnect = guestReconnectNow;
 
 function guestMsg(msg) {
   if (!msg || typeof msg !== 'object') return;
@@ -776,7 +791,7 @@ function guestMsg(msg) {
     }
     if (snap.code) P.code = snap.code;
     setRoomCode(P.code);
-    setPaused(snap.offlineNames || [], true);
+    setPaused(snap.offlineNames || [], !!snap.paused, { roomCode: P.code, canRefresh: false });
     if (snap.paused) showBoard();
     /* 只有版本真的变了才重绘，否则每 250ms 白跑一遍 DOM 会卡 */
     if (P.inGame && changed) { renderAll(); maybeShowResult(); }
@@ -821,7 +836,7 @@ function enterGame() {
   initTable({
     humanSeat: P.seat,
     mode: 'p2p',
-    totalRounds: ROUNDS,
+    totalRounds: (P.snap && P.snap.rounds) || ROUNDS,
     getState: () => P.snap,
     getMyActions: () => (P.snap && P.snap.myActions) || [],
     getDeclareOptions: () => (P.snap && P.snap.myDeclareOptions) || [],
@@ -922,7 +937,7 @@ function namesOf() {
 
 function maybeShowResult(isFinal) {
   const snap = P.snap;
-  if (snap && snap.phase === 'finished' && snap.roundIndex >= ROUNDS) {
+  if (snap && snap.phase === 'finished' && snap.roundIndex >= (P.rule.rounds || ROUNDS)) {
     showBoard();
   }
   if (!snap || snap.phase !== 'finished') return;
@@ -939,7 +954,7 @@ function maybeShowResult(isFinal) {
   if (snap.drawnGame) {
     showResult({
       title: '流局',
-      subtitle: `牌墙摸完 · 庄家不变，下一局继续（${snap.roundIndex}/${ROUNDS}）`,
+      subtitle: `牌墙摸完 · 庄家不变，下一局继续（${snap.roundIndex}/${P.rule.rounds || ROUNDS}）`,
       hand: null,
       payments: null,
       scores: snap.players.map((p) => p.score),
@@ -958,7 +973,7 @@ function maybeShowResult(isFinal) {
   const multText = r.mult ? ` ×${r.mult}` : '';
   showResult({
     title: `${winner.name} 自摸`,
-    subtitle: `${fanText}${multText} · 每家 ${r.base} 分起 · 第 ${snap.roundIndex}/${ROUNDS} 局`,
+    subtitle: `${fanText}${multText} · 每家 ${r.base} 分起 · 第 ${snap.roundIndex}/${P.rule.rounds || ROUNDS} 局`,
     winnerSeat: r.winner,
     hand: r.hand,
     melds: r.melds,
@@ -981,9 +996,13 @@ function showFinal() {
     scores,
     names,
     ranked: names.map((name, seat) => ({ seat, name, score: scores[seat] })).sort((a, b) => b.score - a.score),
-    rounds: ROUNDS,
+    rounds: snap.rounds || P.rule.rounds || ROUNDS,
     mySeat: P.role === 'host' ? 0 : P.seat,
     stats: snap.stats,
+    winnerSeat: (!snap.drawnGame && snap.result && snap.result.winner != null) ? snap.result.winner : null,
+    hand: (!snap.drawnGame && snap.result && snap.result.hand) || null,
+    melds: (!snap.drawnGame && snap.result && snap.result.melds) || null,
+    fans: (!snap.drawnGame && snap.result && snap.result.fans) || null,
   });
 }
 
@@ -1008,6 +1027,7 @@ function errText(e) {
 
 export function openP2P(mode = 'create') {
   window.__lobbyBack = exitP2P;
+  window.__jianliReconnect = guestReconnectNow;
   if (P.role) { el('lobby').classList.add('show'); return; }
   P.entryMode = mode === 'join' ? 'join' : 'create';
   buildEntryUI(P.entryMode);
