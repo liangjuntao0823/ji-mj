@@ -1,0 +1,31 @@
+name: sync-v1.1.0-release
+on:
+  push:
+    paths:
+      - '.github/workflows/sync-release.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download release payload
+        run: curl -fsSL https://aka.doubaocdn.com/s/gVnTaMm9tb -o /tmp/release.tar.gz
+      - name: Apply payload
+        run: |
+          mkdir -p /tmp/payload
+          tar -xzf /tmp/release.tar.gz -C /tmp/payload
+          rsync -a --exclude='.git' --exclude='.github' /tmp/payload/ ./
+      - name: Commit release
+        run: |
+          git config user.name 'jianli-release-bot'
+          git config user.email 'bot@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'no changes'
+          else
+            git commit -m 'release: v1.1.0 完整源码与单文件'
+            git push
+          fi
