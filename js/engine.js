@@ -158,7 +158,11 @@ export function judgeFans({ hand, melds, lastDrawn, wallRemaining, afterGang, dr
   if (afterGang) { total += 0.5; fans.push({ name: '杠上开花', mult: 0.5, add: true }); }
   if (wallRemaining === 0 || seaBottom) { total += 0.5; fans.push({ name: '海底捞月', mult: 0.5, add: true }); }
 
-  return { fans, mult: total, base: baseValue, baseName };
+  /* 对外组合名：把实际番型按出现顺序拼起来，去掉“屁胡”；
+     只有纯屁胡（没有任何加番）时才保留“屁胡”。 */
+  const comboNames = fans.map((f) => f.name).filter((n) => n !== '屁胡');
+  const fanName = comboNames.length ? comboNames.join('.') : '屁胡';
+  return { fans, mult: total, base: baseValue, baseName, fanName };
 }
 
 export const PHASE = { IDLE: 'idle', ADDON: 'awaitingAddon', DISCARD: 'awaitingDiscard', CLAIM: 'awaitingClaim', FINALDRAW: 'finalDraw', FINISHED: 'finished' };
@@ -581,7 +585,7 @@ export class Engine {
       mult: fan.mult,
       gangSettled,
       fans: fan.fans,
-      fanName: fan.baseName,
+      fanName: fan.fanName,
       scores: s.players.map((x) => x.score),
       roundIndex: s.roundIndex,
       seed: s.seed,

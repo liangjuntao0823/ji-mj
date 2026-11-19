@@ -117,7 +117,8 @@ img { -webkit-user-drag: none; user-select: none; }
   position: relative;
   width: var(--tile-w); height: var(--tile-h);
   border-radius: 8px;
-  background: #f4f5f6;
+  /* 牌面 PNG 自带透明圆角；牌框不要垫白底，否则圆角缝隙会露出白边。 */
+  background: transparent;
   box-shadow:
     0 2px 0 rgba(198, 184, 156, 0.95),
     0 5px 9px rgba(0, 0, 0, 0.42),
