@@ -391,12 +391,12 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return json({ ok: true, service: 'jianli-majiang-api', version: 'v121', time: Date.now() });
+      return json({ ok: true, service: 'jianli-majiang-api', version: 'v122', time: Date.now() });
     }
     if (!url.pathname.startsWith('/api/')) {
       return json({ error: 'not found' }, 404);
     }
-    const stub = env.ROOM.get(env.ROOM.idFromName('v121'));
+    const stub = env.ROOM.get(env.ROOM.idFromName('v122'));
     return stub.fetch(request);
   },
 };

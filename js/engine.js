@@ -164,7 +164,7 @@ export function judgeFans({ hand, melds, lastDrawn, wallRemaining, afterGang, dr
 export const PHASE = { IDLE: 'idle', ADDON: 'awaitingAddon', DISCARD: 'awaitingDiscard', CLAIM: 'awaitingClaim', FINALDRAW: 'finalDraw', FINISHED: 'finished' };
 
 function newPlayer(seat, name, isBot) {
-  return { seat, name, hand: [], melds: [], river: [], redsPlayed: 0, piziTiles: [], score: 0, isBot: !!isBot, connected: true, singleLocked: null, declared: false, declareWaits: null, declareIntent: false, discardCount: 0, drawCount: 0 };
+  return { seat, name, hand: [], melds: [], river: [], redsPlayed: 0, piziTiles: [], score: 0, isBot: !!isBot, connected: true, singleLocked: null, declared: false, declareWaits: null, declareIntent: false, discardCount: 0, drawCount: 0, noAddedGang: [] };
 }
 
 export class Engine {
@@ -262,7 +262,7 @@ export class Engine {
     const wallSeed = (state.seed ^ Math.imul(state.roundIndex, 0x9e3779b9)) >>> 0;
     state.wall = new Wall(wallSeed, 0, undefined, this.rule.withDragons);
     for (let i = 0; i < 4; i++) {
-      Object.assign(state.players[i], { hand: [], melds: [], river: [], redsPlayed: 0, piziTiles: [], singleLocked: null, declared: false, declareWaits: null, declareIntent: false, discardCount: 0, drawCount: 0 });
+      Object.assign(state.players[i], { hand: [], melds: [], river: [], redsPlayed: 0, piziTiles: [], singleLocked: null, declared: false, declareWaits: null, declareIntent: false, discardCount: 0, drawCount: 0, noAddedGang: [] });
     }
     state.pending = null;
     state.lastDrawn = null;
@@ -371,6 +371,14 @@ export class Engine {
         throw new EngineError('这张打出去不听牌，报听不成立，请换一张或者取消报听');
       }
     }
+    /* 已经有碰、手里留着第 4 张，却选择继续打别的牌：这张牌以后永久放弃回头笑。
+       注意：如果打出去的正好是这张第 4 张，牌已经离开手牌，不需要再标记。 */
+    p.noAddedGang = p.noAddedGang || [];
+    for (const m of p.melds) {
+      if (m.kind === 'peng' && m.tile !== raw && p.hand.includes(m.tile) && !p.noAddedGang.includes(m.tile)) {
+        p.noAddedGang.push(m.tile);
+      }
+    }
     p.hand.splice(idx, 1);
     s.lastDrawn = null;
     if (s.mustDiscard === seat) s.mustDiscard = null;
@@ -449,6 +457,11 @@ export class Engine {
     if (p.declared) throw new EngineError('报听后不能碰');
     this.#removeTiles(pending.tile, 2, seat);
     p.melds.push({ kind: 'peng', tile: pending.tile });
+    /* 三张在手、别人打第四张：选择碰而不是杠，留在手里的那张以后永久不能补杠回头笑。 */
+    p.noAddedGang = p.noAddedGang || [];
+    if (p.hand.includes(pending.tile) && !p.noAddedGang.includes(pending.tile)) {
+      p.noAddedGang.push(pending.tile);
+    }
     this.#removeFromRiver(pending.tile, pending.discarder);
     s.current = seat;
     s.phase = PHASE.DISCARD;
@@ -507,6 +520,7 @@ export class Engine {
     const mi = p.melds.findIndex((m) => m.tile === raw && m.kind === 'peng');
     if (mi < 0) throw new EngineError('没有这张牌的碰');
     if (!p.hand.includes(raw)) throw new EngineError('手里没有第四张');
+    if ((p.noAddedGang || []).includes(raw)) throw new EngineError('这张牌已经放弃回头笑，不能再补杠');
     if (p.declared) {
       const nh = p.hand.slice();
       nh.splice(nh.indexOf(raw), 1);
@@ -873,7 +887,7 @@ export class Engine {
           if (this.#canGangAfterDeclare(p, nh, p.melds.length + 1)) out.push({ type: 'gangConcealed', tile: kind });
         }
       }
-      if (p.melds.some((m) => m.kind === 'peng' && m.tile === kind) && p.hand.includes(kind)) {
+      if (p.melds.some((m) => m.kind === 'peng' && m.tile === kind) && p.hand.includes(kind) && !(p.noAddedGang || []).includes(kind)) {
         if (!p.declared) out.push({ type: 'gangAdded', tile: kind });
         else {
           const nh = p.hand.slice(); nh.splice(nh.indexOf(kind), 1);
