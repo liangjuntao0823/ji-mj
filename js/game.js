@@ -51,6 +51,10 @@ function readHomeRule() {
   if (statTiles) statTiles.textContent = HOME_RULE.withDragons ? '120' : '112';
   const statCap = el('home-stat-cap');
   if (statCap) statCap.textContent = HOME_RULE.withDragons ? '×12' : '×8';
+  const modeSummary = el('mode-summary');
+  if (modeSummary) {
+    modeSummary.textContent = `${HOME_RULE.rounds} 局 · ${HOME_RULE.withDragons ? '中发白' : '默认'} · ${HOME_RULE.addonEnabled ? '自由加增' : '不加增'}`;
+  }
   window.JIANLI_HOME_RULE = { ...HOME_RULE };
   return { ...HOME_RULE };
 }
@@ -64,6 +68,12 @@ function readHomeRule() {
   });
   ['cfg-dragons', 'cfg-addon'].forEach((id) => { const n = el(id); if (n) n.addEventListener('change', readHomeRule); });
   readHomeRule();
+  const modal = el('mode-modal');
+  const open = el('mode-open');
+  const close = el('mode-close');
+  if (open && modal) open.addEventListener('click', () => { readHomeRule(); modal.classList.add('show'); });
+  if (close && modal) close.addEventListener('click', () => modal.classList.remove('show'));
+  if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('show'); });
 })();
 
 /* ---------------- 入口 ---------------- */

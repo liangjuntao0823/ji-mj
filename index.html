@@ -24,7 +24,7 @@
 
         <div class="home-left">
           <div class="home-eyebrow">湖北 · 监利 · 红中皮子</div>
-          <div class="home-version" id="home-version">v1.1.1 · 2026-11-19</div>
+          <div class="home-version" id="home-version">v1.1.2 · 2026-11-19</div>
           <h1 class="home-title">监利红中<em>MAHJONG</em></h1>
           <p class="home-desc">
             112 张牌（勾选中发白 120 张），<b>红中当皮必打</b>，<b>只许自摸</b>，碰杠四档算分。
@@ -73,20 +73,16 @@
               </span>
             </button>
 
-            <div class="home-config">
-              <div class="cfg-line">
-                <span class="cfg-label">局数</span>
-                <div class="cfg-seg" id="cfg-rounds">
-                  <button data-rounds="8" class="is-on">8 局</button>
-                  <button data-rounds="16">16 局</button>
-                  <button data-rounds="32">32 局</button>
-                </div>
-              </div>
-              <div class="cfg-line">
-                <label class="cfg-check"><input type="checkbox" id="cfg-dragons"><i></i><span>中发白</span><em>发财/白板同红中</em></label>
-                <label class="cfg-check"><input type="checkbox" id="cfg-addon"><i></i><span>自由加增</span><em>每局可选 +0~3 份</em></label>
-              </div>
-            </div>
+            <button class="mode-entry" id="mode-open" type="button">
+              <span class="mode-entry-icon">
+                <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+              </span>
+              <span class="mode-entry-body">
+                <span class="mode-entry-title">模式选择</span>
+                <span class="mode-entry-sum" id="mode-summary">8 局 · 默认 · 不加增</span>
+              </span>
+              <span class="mode-entry-arrow" aria-hidden="true">›</span>
+            </button>
             <div class="menu-foot">
               <div class="menu-links">
                 <button class="rule-link" id="home-rules">规则与番型</button>
@@ -234,6 +230,32 @@
 
       <!-- ===== 提示 ===== -->
       <div id="toast"></div>
+
+      <!-- ===== 模式选择 ===== -->
+      <div id="mode-modal">
+        <div class="rules-card mode-card">
+          <h3>模式选择</h3>
+          <div class="rules-lead">先选局数，再决定牌组和加增方式</div>
+          <div class="mode-row">
+            <div class="mode-row-label">局数</div>
+            <div class="cfg-seg mode-seg" id="cfg-rounds">
+              <button data-rounds="8" class="is-on">8 局</button>
+              <button data-rounds="16">16 局</button>
+              <button data-rounds="32">32 局</button>
+            </div>
+          </div>
+          <div class="mode-row">
+            <div class="mode-row-label">牌组</div>
+            <label class="cfg-check mode-check"><input type="checkbox" id="cfg-dragons"><i></i><span>中发白</span><em>发财、白板同红中</em></label>
+          </div>
+          <div class="mode-row">
+            <div class="mode-row-label">加增</div>
+            <label class="cfg-check mode-check"><input type="checkbox" id="cfg-addon"><i></i><span>自由加增</span><em>每小局可选 +0~3 份</em></label>
+          </div>
+          <div class="mode-tip">设置对单机、创建房间和加入房间都生效。</div>
+          <button class="rules-close" id="mode-close">完成</button>
+        </div>
+      </div>
 
       <!-- ===== 规则 ===== -->
       <div id="rules-modal">
