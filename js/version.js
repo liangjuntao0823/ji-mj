@@ -1,8 +1,18 @@
 /* 版本号与更新记录：每次发版同步修改这里与根目录 CHANGELOG.md */
-export const APP_VERSION = '1.1.6';
+export const APP_VERSION = '1.1.7';
 export const APP_RELEASED_AT = '2026-11-19';
 
 export const APP_RELEASES = [
+  {
+    version: '1.1.7',
+    date: '2026-11-19',
+    updates: [
+      '联机轮询改为请求回来立即发下一次，去掉上一版固定 600ms 的额外等待',
+    ],
+    fixes: [
+      '修复公网服务器操作反馈有一小段延迟的问题',
+    ],
+  },
   {
     version: '1.1.6',
     date: '2026-11-19',

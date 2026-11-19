@@ -113,7 +113,7 @@ el('lobby-join').addEventListener('click', async () => {
 
 /* ---------------- 轮询 ---------------- */
 
-const POLL_MS = 600;
+const POLL_MS = 40;
 
 function startPolling() {
   if (NET.pollTimer) clearTimeout(NET.pollTimer);
