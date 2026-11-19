@@ -1,8 +1,20 @@
 /* 版本号与更新记录：每次发版同步修改这里与根目录 CHANGELOG.md */
-export const APP_VERSION = '1.1.4';
+export const APP_VERSION = '1.1.5';
 export const APP_RELEASED_AT = '2026-11-19';
 
 export const APP_RELEASES = [
+  {
+    version: '1.1.5',
+    date: '2026-11-19',
+    updates: [
+      '公网服务器改为独立 Cloudflare Worker + Pages 同域 /api 代理，创建房间、加入房间恢复可用',
+      '联机轮询改为串行请求，避免慢请求堆积把大厅和牌桌拖死',
+    ],
+    fixes: [
+      '修复线上只部署静态页面时 /api/* 返回 405，导致公网创建房间、加入房间无反应的问题',
+      '修复 120ms 轮询在慢网络下层层堆积、越点越卡的问题',
+    ],
+  },
   {
     version: '1.1.4',
     date: '2026-11-19',

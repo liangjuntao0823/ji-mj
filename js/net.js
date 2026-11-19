@@ -89,24 +89,43 @@ export function openLAN(serverBase, mode = 'join') {
 el('lobby-join').addEventListener('click', async () => {
   const name = el('lobby-name').value.trim();
   if (!name) { el('lobby-name').focus(); return; }
+  const btn = el('lobby-join');
+  const hint = NET.entryMode === 'create' ? '正在创建房间…' : '正在加入房间…';
+  if (btn) { btn.disabled = true; btn.dataset.label = btn.textContent; btn.textContent = hint; }
+  el('lobby-status').textContent = hint;
   NET.name = name;
   localStorage.setItem('jianli_name', name);
-  const r = await api('/api/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-  if (r.error) { el('lobby-status').textContent = r.error; return; }
-  NET.token = r.token;
-  NET.seat = r.seat;
-  localStorage.setItem('jianli_token', r.token);
-  localStorage.setItem('jianli_token_base', BASE);
-  el('lobby-name-row').style.display = 'none';
-  startPolling();
+  try {
+    const r = await api('/api/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    if (r.error) { el('lobby-status').textContent = r.error; return; }
+    NET.token = r.token;
+    NET.seat = r.seat;
+    localStorage.setItem('jianli_token', r.token);
+    localStorage.setItem('jianli_token_base', BASE);
+    el('lobby-name-row').style.display = 'none';
+    startPolling();
+  } catch (e) {
+    el('lobby-status').textContent = '服务器没连上，稍后再试';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label || (NET.entryMode === 'create' ? '创建房间' : '加入房间'); }
+  }
 });
 
 /* ---------------- 轮询 ---------------- */
 
+const POLL_MS = 600;
+
 function startPolling() {
-  if (NET.pollTimer) clearInterval(NET.pollTimer);
-  NET.pollTimer = setInterval(pollOnce, 120);
-  pollOnce();
+  if (NET.pollTimer) clearTimeout(NET.pollTimer);
+  NET.pollTimer = true;
+  const loop = async () => {
+    if (!NET.pollTimer) return;
+    await pollOnce();
+    if (!NET.pollTimer) return;
+    /* 串行轮询：上一次请求回来后再排下一次，避免 120ms 定时器把慢请求堆成雪崩 */
+    NET.pollTimer = setTimeout(loop, POLL_MS);
+  };
+  loop();
   if (!NET.localTimer) {
     NET.localTimer = setInterval(() => {
       if (!NET.snap || !NET.snap.turnDeadline) return;
@@ -117,7 +136,7 @@ function startPolling() {
 }
 
 function stopPolling() {
-  clearInterval(NET.pollTimer);
+  clearTimeout(NET.pollTimer);
   NET.pollTimer = null;
   clearInterval(NET.localTimer);
   NET.localTimer = null;

@@ -368,7 +368,7 @@ export default {
     if (!url.pathname.startsWith('/api/')) {
       return json({ error: 'not found' }, 404);
     }
-    const stub = env.ROOM.get(env.ROOM.idFromName('v109'));
+    const stub = env.ROOM.get(env.ROOM.idFromName('v110'));
     return stub.fetch(request);
   },
 };
