@@ -49,6 +49,7 @@ const UI = {
   acts: [],
   timer: { ratio: 0, total: 30 },
   scale: 1,
+  portrait: false,
   toastTimer: null,
   result: null,
   boardOpen: false,
@@ -1032,6 +1033,73 @@ function zoomSupported() {
   return ZOOM_OK;
 }
 
+let lobbyInputHint = null;
+let lobbyPendingInput = null;
+
+function isPortraitNow() {
+  const vv = window.visualViewport;
+  const w = Math.round(Math.max(D.documentElement.clientWidth || 0, window.innerWidth || 0, (vv && vv.width) || 0));
+  const h = Math.round(Math.max(D.documentElement.clientHeight || 0, window.innerHeight || 0, (vv && vv.height) || 0));
+  return h > w * 1.05;
+}
+
+function ensureLobbyInputHint() {
+  if (lobbyInputHint && lobbyInputHint.isConnected) return lobbyInputHint;
+  lobbyInputHint = D.createElement('div');
+  lobbyInputHint.id = 'lobby-input-hint';
+  lobbyInputHint.innerHTML = `
+    <div class="lih-card" role="dialog" aria-modal="true" aria-labelledby="lih-title">
+      <div class="lih-icon" aria-hidden="true">
+        <svg viewBox="0 0 48 48"><rect x="16" y="6" width="16" height="34" rx="4"/><path d="M20 36h8"/><path d="M8 22a17 17 0 0 1 4-9"/><path d="M5 12l-1 8 8-1"/></svg>
+      </div>
+      <h3 id="lih-title">请把手机横过来再输入</h3>
+      <p>本桌只做横屏。横过来后输入法就是横屏的；<br>如果还是竖屏，请先关闭手机的「竖屏锁定」。</p>
+      <button type="button" id="lobby-input-hint-close">知道了</button>
+    </div>`;
+  D.body.appendChild(lobbyInputHint);
+  lobbyInputHint.querySelector('#lobby-input-hint-close').addEventListener('click', () => {
+    lobbyInputHint.classList.remove('is-on');
+    const input = lobbyPendingInput && $(lobbyPendingInput);
+    lobbyPendingInput = null;
+    if (input && !isPortraitNow()) setTimeout(() => input.focus(), 30);
+  });
+  return lobbyInputHint;
+}
+
+function showLobbyInputHint(input) {
+  const hint = ensureLobbyInputHint();
+  lobbyPendingInput = input && input.id ? input.id : null;
+  hint.classList.add('is-on');
+}
+
+function hideLobbyInputHint(refocus) {
+  if (lobbyInputHint) lobbyInputHint.classList.remove('is-on');
+  const input = lobbyPendingInput && $(lobbyPendingInput);
+  lobbyPendingInput = null;
+  if (refocus && input && !isPortraitNow()) setTimeout(() => input.focus(), 30);
+}
+
+/* 原生输入法只跟手机方向走，CSS 旋转不会把键盘转成横屏。
+   竖屏点大厅输入框时先不弹竖屏键盘，提示用户把手机横过来。 */
+function guardLobbyInputOrientation() {
+  D.addEventListener('pointerdown', (e) => {
+    const t = e.target && e.target.closest && e.target.closest('#lobby input, #lobby textarea');
+    if (!t || !isPortraitNow()) return;
+    e.preventDefault();
+    e.stopPropagation();
+    t.blur();
+    requestLandscapeLock();
+    showLobbyInputHint(t);
+  }, true);
+  D.addEventListener('focusin', (e) => {
+    const t = e.target && e.target.closest && e.target.closest('#lobby input, #lobby textarea');
+    if (!t || !isPortraitNow()) return;
+    t.blur();
+    requestLandscapeLock();
+    showLobbyInputHint(t);
+  }, true);
+}
+
 export function applyLayoutUnits() {
   const root = D.documentElement;
   const vv = window.visualViewport;
@@ -1092,6 +1160,11 @@ export function applyLayoutUnits() {
     }
   }
   UI.scale = s;
+  UI.portrait = portrait;
+  if (!portrait) {
+    if (lobbyInputHint) lobbyInputHint.classList.remove('is-on');
+    lobbyPendingInput = null;
+  }
   const rh = $('rotate-hint');
   if (rh) rh.classList.toggle('is-on', !portrait && vw < vh * 1.02);
 }
@@ -1107,6 +1180,7 @@ function requestLandscapeLock() {
 
 export function bindLayout() {
   const app = $('app');
+  guardLobbyInputOrientation();
   let bootFrames = 0;
   const settleLayout = () => {
     applyLayoutUnits();

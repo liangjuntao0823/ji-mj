@@ -1,8 +1,18 @@
 /* 版本号与更新记录：每次发版同步修改这里与根目录 CHANGELOG.md */
-export const APP_VERSION = '1.1.0';
+export const APP_VERSION = '1.1.1';
 export const APP_RELEASED_AT = '2026-11-19';
 
 export const APP_RELEASES = [
+  {
+    version: '1.1.1',
+    date: '2026-11-19',
+    updates: [
+      '创建房间、加入房间页面整体再放大：卡片、标题、名字框、房号框和按钮都加大一档',
+    ],
+    fixes: [
+      '修复竖屏点名字框/房号框时弹出竖屏键盘：现在竖屏先提示把手机横过来，横屏后再输入；并提示关闭手机竖屏锁定',
+    ],
+  },
   {
     version: '1.1.0',
     date: '2026-11-19',
