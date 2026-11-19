@@ -33,8 +33,8 @@ const el = (id) => document.getElementById(id) || null;
  * 如果 UI 提供了同 id 的按钮，这里会自动绑上，不需要额外代码。 */
 const on = (id, fn) => { const n = el(id); if (n) n.addEventListener('click', fn); };
 
-/* 首页房间设置：局数 / 中发白 / 自由加增 */
-const HOME_RULE = { rounds: 8, withDragons: false, addonEnabled: false };
+/* 首页房间设置：局数 / 中发白 / 自由加增 / 围增 */
+const HOME_RULE = { rounds: 8, withDragons: false, addonEnabled: false, baseShare: 1 };
 function readHomeRule() {
   const seg = el('cfg-rounds');
   if (seg) {
@@ -43,6 +43,11 @@ function readHomeRule() {
   }
   HOME_RULE.withDragons = !!(el('cfg-dragons') && el('cfg-dragons').checked);
   HOME_RULE.addonEnabled = !!(el('cfg-addon') && el('cfg-addon').checked);
+  const shareSeg = el('cfg-share');
+  if (shareSeg) {
+    const on = shareSeg.querySelector('.is-on');
+    HOME_RULE.baseShare = Math.max(1, Math.min(3, Number(on && on.dataset.share) || 1));
+  }
   const singleSub = el('single-sub');
   if (singleSub) singleSub.textContent = `我 + 三台机器人 · ${HOME_RULE.rounds} 局一场`;
   const statRounds = el('home-stat-rounds');
@@ -53,7 +58,7 @@ function readHomeRule() {
   if (statCap) statCap.textContent = HOME_RULE.withDragons ? '×12' : '×8';
   const modeSummary = el('mode-summary');
   if (modeSummary) {
-    modeSummary.textContent = `${HOME_RULE.rounds} 局 · ${HOME_RULE.withDragons ? '中发白' : '默认'} · ${HOME_RULE.addonEnabled ? '自由加增' : '不加增'}`;
+    modeSummary.textContent = `${HOME_RULE.rounds} 局 · ${HOME_RULE.withDragons ? '中发白' : '默认'} · ${HOME_RULE.addonEnabled ? '自由加增' : '不加增'}${HOME_RULE.baseShare > 1 ? ` · 围增倒${HOME_RULE.baseShare}` : ''}`;
   }
   window.JIANLI_HOME_RULE = { ...HOME_RULE };
   return { ...HOME_RULE };
@@ -67,6 +72,13 @@ function readHomeRule() {
     readHomeRule();
   });
   ['cfg-dragons', 'cfg-addon'].forEach((id) => { const n = el(id); if (n) n.addEventListener('change', readHomeRule); });
+  const shareSeg = el('cfg-share');
+  if (shareSeg) shareSeg.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-share]');
+    if (!b) return;
+    shareSeg.querySelectorAll('button').forEach((x) => x.classList.toggle('is-on', x === b));
+    readHomeRule();
+  });
   readHomeRule();
   const modal = el('mode-modal');
   const open = el('mode-open');
@@ -146,7 +158,7 @@ function startSingle() {
   const seed = (Date.now() & 0xffffffff) >>> 0;
   const cfg = readHomeRule();
   S.rounds = cfg.rounds;
-  const e = new Engine({ seed, names: S.names, botSeats: [1, 2, 3], dealer: 0, roundIndex: 1, rule: { ...DEFAULT_RULE, rounds: cfg.rounds, withDragons: cfg.withDragons, addonEnabled: cfg.addonEnabled } });
+  const e = new Engine({ seed, names: S.names, botSeats: [1, 2, 3], dealer: 0, roundIndex: 1, rule: { ...DEFAULT_RULE, rounds: cfg.rounds, withDragons: cfg.withDragons, addonEnabled: cfg.addonEnabled, baseShare: cfg.baseShare } });
   S.engine = e;
   S.mode = 'single';
   S.humanSeat = 0;

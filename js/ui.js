@@ -374,7 +374,7 @@ function drawRiver(el, p, s, rotated) {
   if (last && last.seat === p.seat) {
     for (let i = river.length - 1; i >= 0; i--) if (river[i] === last.tile) { lastIdx = i; break; }
   }
-  const per = 6;
+  const per = rotated ? 6 : 7;
   const chunks = [];
   for (let i = 0; i < river.length; i += per) chunks.push(river.slice(i, i + per));
   const mark = (gi) => (gi === lastIdx ? 'is-last' : '');
@@ -554,9 +554,10 @@ function drawAddons(s) {
   if (!active) { layer.classList.remove('is-on'); layer.innerHTML = ''; return; }
   const names = (s.players || []).map((p) => p.name);
   const status = names.map((n, i) => `${esc(n)}：${chosen[i] ? txt(addons[i]) : '未选'}`).join('　');
+  const baseShare = Math.max(1, Math.min(3, Number(s.baseShare) || 1));
   layer.innerHTML = `<div class="addon-card">
     <div class="addon-title">第 ${s.roundIndex || 1} 局 · 自由加增</div>
-    <div class="addon-sub">份子 = 1 + 加增 + 皮子数。四家全部选完才发牌。</div>
+    <div class="addon-sub">份子 = ${baseShare} + 加增 + 皮子数${baseShare > 1 ? `（围增倒${baseShare}）` : ''}。四家全部选完才发牌。</div>
     <div class="addon-choices">
       ${[0, 1, 2, 3].map((v) => `<button class="addon-btn${v === 0 ? ' ghost' : ''}" data-addon="${v}">${v === 0 ? '不加增' : '增 ' + v + ' 份'}</button>`).join('')}
     </div>
@@ -777,6 +778,9 @@ function winHtml(payload) {
   const hand = r.hand || payload.hand || [];
   const melds = r.melds || payload.melds || [];
   const gang = r.gangSettled || payload.gangSettled || [];
+  const addons = (s.addons || []).slice();
+  const piziTiles = players.map((p) => (p.piziTiles || []).slice());
+  const share = Math.max(1, Math.min(3, Number(s.baseShare) || Number(r.baseShare) || 1));
 
   const fanChips = fans.map((f) => `<span class="fan-chip${f.add ? ' add' : ''}">${esc(f.name)} <b>${f.add ? '+' : '×'}${f.mult}</b></span>`).join('');
   const handTiles = hand.map((t) => tileHtml(t, '')).join('') + melds.map((m) => meldHtml(m)).join('');
@@ -794,10 +798,10 @@ function winHtml(payload) {
 
   return `
     <div class="result-title">${esc(wn)} 自摸</div>
-    <div class="result-sub">第 ${s.roundIndex || 1}/${G.totalRounds || 8} 局 · 自摸${mult != null ? ` · 总倍数 ${mult}` : ''}</div>
+    <div class="result-sub">第 ${s.roundIndex || 1}/${G.totalRounds || 8} 局 · 自摸${mult != null ? ` · 总倍数 ${mult}` : ''}${share > 1 ? ` · 围增倒${share}` : ''}</div>
     ${fanChips ? `<div class="result-fans">${fanChips}</div>` : ''}
     <div class="result-hand">${handTiles}</div>
-    <div class="round-board">${roundBoard(scores, delta, names, { winner, withDragons: !!s.withDragons, reds: players.map((p) => p.redsPlayed || 0) })}</div>
+    <div class="round-board">${roundBoard(scores, delta, names, { winner, withDragons: !!s.withDragons, reds: players.map((p) => p.redsPlayed || 0), piziTiles, addons, addonEnabled: !!s.addonEnabled })}</div>
     ${readyStrip(payload.ready, names, payload.mySeat)}
     <div class="result-actions">
       <button class="big-btn" id="res-next">下 一 局</button>
@@ -805,20 +809,36 @@ function winHtml(payload) {
     </div>`;
 }
 
-/* 单局分数面板：每家只显示本局增减分、累计总分、打出的红中数；赢家高亮 */
+/* 单局分数面板：每家只显示本局增减分、累计总分、皮子明细；赢家高亮。
+   中发白模式拆成中/发/白；自由加增只给选了增的玩家显示「增」。 */
 function roundBoard(scores, delta, names, opt = {}) {
   const winner = opt.winner != null ? opt.winner : -1;
   const reds = opt.reds || [0, 0, 0, 0];
+  const piziTiles = opt.piziTiles || [];
+  const addons = opt.addons || [0, 0, 0, 0];
+  const addonEnabled = !!opt.addonEnabled;
+  const countPizi = (seat, raw) => (piziTiles[seat] || []).filter((t) => t === raw).length;
   return (scores || []).map((v, i) => {
     const fen = delta[i] || 0;
     const isWin = i === winner;
     const pr = reds[i] || 0;
+    const addon = addons[i] || 0;
+    const hasAddon = addonEnabled && addon > 0;
+    const pizi = opt.withDragons
+      ? `<span class="rb-pizi-counts">
+          <span class="rb-pizi"><em>中</em><b>${countPizi(i, RED_RAW) || pr}</b></span>
+          <span class="rb-pizi"><em>发</em><b>${countPizi(i, FA_RAW)}</b></span>
+          <span class="rb-pizi"><em>白</em><b>${countPizi(i, BAI_RAW)}</b></span>
+          ${hasAddon ? `<span class="rb-pizi rb-addon"><em>增</em><b>${addon}</b></span>` : ''}
+        </span>`
+      : `<span class="rb-stat rb-red"><em>红中</em><b>${pr} 个</b></span>
+        ${hasAddon ? `<span class="rb-stat rb-addon"><em>增</em><b>${addon} 份</b></span>` : ''}`;
     return `
     <div class="rb-cell${i === UI.me ? ' is-me' : ''}${isWin ? ' is-win' : ''}">
       <span class="rb-name">${esc(names[i] || ('座位' + i))}${isWin ? '<i class="rb-hu">胡</i>' : ''}</span>
       <span class="rb-stat"><em>本局</em><b class="${fen > 0 ? 'pos' : fen < 0 ? 'neg' : ''}">${num(fen)} 分</b></span>
       <span class="rb-stat"><em>总分</em><b class="${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${num(v)} 分</b></span>
-      <span class="rb-stat rb-red"><em>${opt.withDragons ? '皮子' : '红中'}</em><b>${pr} 个</b></span>
+      ${pizi}
     </div>`;
   }).join('');
 }
@@ -827,6 +847,9 @@ function drawnHtml(payload) {
   const { s, players, names } = resultCtx(payload);
   const gang = (s.result && s.result.gangSettled) || payload.gangSettled || [];
   const scores = payload.scores || players.map((p) => p.score);
+  const addons = (s.addons || []).slice();
+  const piziTiles = players.map((p) => (p.piziTiles || []).slice());
+  const share = Math.max(1, Math.min(3, Number(s.baseShare) || 1));
   const delta = [0, 0, 0, 0];
   for (const g of gang) {
     if (g.amount == null) continue;
@@ -835,8 +858,8 @@ function drawnHtml(payload) {
   }
   return `
     <div class="result-title">流 局</div>
-    <div class="result-sub">牌墙摸完 · 庄家不变 · 第 ${s.roundIndex || 1}/${G.totalRounds || 8} 局</div>
-    <div class="round-board">${roundBoard(scores, delta, names, { winner: -1, withDragons: !!s.withDragons, reds: (players || []).map((p) => p.redsPlayed || 0) })}</div>
+    <div class="result-sub">牌墙摸完 · 庄家不变 · 第 ${s.roundIndex || 1}/${G.totalRounds || 8} 局${share > 1 ? ` · 围增倒${share}` : ''}</div>
+    <div class="round-board">${roundBoard(scores, delta, names, { winner: -1, withDragons: !!s.withDragons, reds: (players || []).map((p) => p.redsPlayed || 0), piziTiles, addons, addonEnabled: !!s.addonEnabled })}</div>
     ${readyStrip(payload.ready, names, payload.mySeat)}
     <div class="result-actions">
       <button class="big-btn" id="res-next">下 一 局</button>

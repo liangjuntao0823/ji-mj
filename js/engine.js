@@ -23,6 +23,7 @@ export const DEFAULT_RULE = {
   rounds: 8,
   withDragons: false,   // 中发白：发财、白板与红中同为皮子
   addonEnabled: false,  // 自由加增：每小局开局前每人选 0~3 份
+  baseShare: 1,         // 围增：所有玩家基础份子从 1/2/3 起算
 };
 
 export class EngineError extends Error {}
@@ -192,6 +193,7 @@ export class Engine {
       addonChosen: [true, true, true, true],
       addonEnabled: !!this.rule.addonEnabled,
       withDragons: !!this.rule.withDragons,
+      baseShare: Math.max(1, Math.min(3, Number(this.rule.baseShare) || 1)),
       /* 海底捞月：牌墙只剩最后 4 张后，四家各摸一张、只摸不打 */
       finalMode: false,
       finalQueue: [],
@@ -558,6 +560,7 @@ export class Engine {
       winnerReds: p.redsPlayed,
       base: baseScore,
       baseMult: this.rule.selfDrawBase,
+      baseShare: Math.max(1, Math.min(3, Number(this.rule.baseShare) || 1)),
       mult: fan.mult,
       gangSettled,
       fans: fan.fans,
@@ -689,13 +692,14 @@ export class Engine {
 
   /* ---------------- 分账 ---------------- */
 
-  /** 皮子（红中）份子：每方份子 = 1 + 该方打出的红中数，赢家与付钱方互乘。
-   *  双方都没红中 → 1×1；一方 1 个红中 → 2；双方各 1 个 → 2×2=4。 */
+  /** 份子：每方份子 = 基础份子（围增 1/2/3）+ 该方打出的皮子数 + 该方自由加增。
+   *  赢家与付钱方互乘；双方都没皮子、没加增、倒1 → 1×1。 */
   amount(base, winner, payer) {
     const cap = this.rule.withDragons ? 12 : 8;
     const add = (seat) => (this.rule.addonEnabled ? (this.state.addons?.[seat] || 0) : 0);
-    const wm = 1 + add(winner) + Math.min(this.state.players[winner].redsPlayed, cap);
-    const pm = 1 + add(payer) + Math.min(this.state.players[payer].redsPlayed, cap);
+    const share = Math.max(1, Math.min(3, Number(this.rule.baseShare) || 1));
+    const wm = share + add(winner) + Math.min(this.state.players[winner].redsPlayed, cap);
+    const pm = share + add(payer) + Math.min(this.state.players[payer].redsPlayed, cap);
     return base * wm * pm;
   }
 
@@ -837,6 +841,7 @@ export class Engine {
       addonEnabled: !!this.rule.addonEnabled,
       rounds: this.rule.rounds,
       withDragons: !!this.rule.withDragons,
+      baseShare: Math.max(1, Math.min(3, Number(this.rule.baseShare) || 1)),
       lastDrawn: s.current === seat ? s.lastDrawn : null,
       myActions: this.options(seat),
       myDeclareOptions: this.declareOptions(seat),

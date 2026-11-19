@@ -170,7 +170,7 @@ async function createRoom() {
   P.role = 'host';
   P.seat = 0;
   const cfg = window.JIANLI_HOME_RULE || {};
-  P.rule = { ...DEFAULT_RULE, rounds: [8, 16, 32].includes(Number(cfg.rounds)) ? Number(cfg.rounds) : ROUNDS, withDragons: !!cfg.withDragons, addonEnabled: !!cfg.addonEnabled };
+  P.rule = { ...DEFAULT_RULE, rounds: [8, 16, 32].includes(Number(cfg.rounds)) ? Number(cfg.rounds) : ROUNDS, withDragons: !!cfg.withDragons, addonEnabled: !!cfg.addonEnabled, baseShare: Math.max(1, Math.min(3, Number(cfg.baseShare) || 1)) };
   P.players = [{ name, isBot: false, online: true }];
   P.version++;
 

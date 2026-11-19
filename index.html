@@ -24,7 +24,7 @@
 
         <div class="home-left">
           <div class="home-eyebrow">湖北 · 监利 · 红中皮子</div>
-          <div class="home-version" id="home-version">v1.1.2 · 2026-11-19</div>
+          <div class="home-version" id="home-version">v1.1.3 · 2026-11-19</div>
           <h1 class="home-title">监利红中<em>MAHJONG</em></h1>
           <p class="home-desc">
             112 张牌（勾选中发白 120 张），<b>红中当皮必打</b>，<b>只许自摸</b>，碰杠四档算分。
@@ -235,7 +235,7 @@
       <div id="mode-modal">
         <div class="rules-card mode-card">
           <h3>模式选择</h3>
-          <div class="rules-lead">先选局数，再决定牌组和加增方式</div>
+          <div class="rules-lead">先选局数，再决定牌组、加增和围增</div>
           <div class="mode-row">
             <div class="mode-row-label">局数</div>
             <div class="cfg-seg mode-seg" id="cfg-rounds">
@@ -252,6 +252,15 @@
             <div class="mode-row-label">加增</div>
             <label class="cfg-check mode-check"><input type="checkbox" id="cfg-addon"><i></i><span>自由加增</span><em>每小局可选 +0~3 份</em></label>
           </div>
+          <div class="mode-row">
+            <div class="mode-row-label">围增模式</div>
+            <div class="cfg-seg mode-seg" id="cfg-share">
+              <button data-share="1" class="is-on">倒1</button>
+              <button data-share="2">倒2</button>
+              <button data-share="3">倒3</button>
+            </div>
+          </div>
+          <div class="mode-share-note">围增把四家基础份子统一抬到 1 / 2 / 3；自由加增另算。</div>
           <div class="mode-tip">设置对单机、创建房间和加入房间都生效。</div>
           <button class="rules-close" id="mode-close">完成</button>
         </div>
@@ -288,7 +297,8 @@
             </div>
             <div class="rules-block">
               <h4>算分</h4>
-              <p>基础分 = 10 × 总倍数；某家应付 = 基础分 ×（1+加增+赢家皮子数）×（1+加增+付家皮子数）。</p>
+              <p>基础分 = 10 × 总倍数；某家应付 = 基础分 ×（围增基础份子 + 加增 + 赢家皮子数）×（围增基础份子 + 加增 + 付家皮子数）。</p>
+              <p>围增模式分倒1 / 倒2 / 倒3：四家基础份子统一按 1 / 2 / 3 起算；自由加增仍由各家另加。</p>
               <p>勾选「自由加增」后，每小局四家各选不加增 / 增1 / 增2 / 增3，四家选完才发牌。</p>
               <p>只许自摸，<b>三家各付</b>；任何一局加减总和为 0。</p>
             </div>
