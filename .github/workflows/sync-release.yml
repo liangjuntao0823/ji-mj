@@ -14,7 +14,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Download release payload
-        run: curl -fsSL https://aka.doubaocdn.com/s/44ULnvt6jp -o /tmp/release.tar.gz
+        run: curl -fsSL https://aka.doubaocdn.com/s/R34amb36qm -o /tmp/release.tar.gz
       - name: Apply payload
         run: |
           mkdir -p /tmp/payload
@@ -30,7 +30,7 @@ jobs:
           if git diff --cached --quiet; then
             echo 'no changes'
           else
-            git commit -m 'release: v1.2.5 创建房间与提示字号加大（同版本号）'
+            git commit -m 'release: v1.2.5 创建房间卡片完整放大（同版本号）'
             git push origin HEAD:main
           fi
       - name: Prepare gh-pages
@@ -47,4 +47,4 @@ jobs:
           publish_dir: ./gh-pages-dist
           user_name: 'jianli-release-bot'
           user_email: 'bot@users.noreply.github.com'
-          commit_message: 'release: v1.2.5 UI enlarge (same version)'
+          commit_message: 'release: v1.2.5 lobby card fix (same version)'
