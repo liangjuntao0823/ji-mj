@@ -5,7 +5,8 @@
 
 ## 0. 在线版
 
-- 网址：<https://jianli-majiang.pages.dev/>
+- 网址：<https://jianli-majiang.pages.dev/?v=107>
+- 备用（手机网络打不开 pages.dev 时）：<https://liangjuntao0823.github.io/ji-mj/?v=107>
 - 仓库：<https://github.com/liangjuntao0823/ji-mj>（公开）
 - Cloudflare Pages：项目 `jianli-majiang` 为 Direct Upload（拖拽上传 `index.html` 发布），不接 Git 自动构建；源码与单文件成品在 `ji-mj`，每次改版先推仓库，再把 `监利红中-横屏版.html` 复制为 `index.html` 上传到该项目。
 - 在线版支持单机、手机 P2P 建房/加入；局域网模式需要本机跑 `server.js`（Pages 只托管静态页面，不跑 Node）。
@@ -17,10 +18,11 @@
 | 想干嘛 | 怎么做 | 需要什么 |
 |---|---|---|
 | 直接玩单机 / 手机 P2P 建房 | 双击 `监利红中-横屏版.html` | 一个浏览器（Chrome / Edge / Safari 都行），无需联网、无需服务器 |
+| 不同网络 / 不同手机运营商联机 | 打开 `https://jianli-majiang.pages.dev`，首页右上角切到「公网服务器」，第一人建房、其他人输入名字入座 | 能上网的手机或电脑，不需要开电脑做主机 |
 | 同一 WiFi 四台手机联机 | 双击 `启动局域网.bat`（或 `node server.js`），手机打开命令行里给出的网址 | 一台开着的电脑 + Node |
 
-> 单文件版是**整包自包含**：CSS、全部脚本、28 张牌面、4 个头像、PeerJS 全部内联，没有任何外部请求。
-> 局域网联机必须有服务端（浏览器之间无法直接开 HTTP 服务），所以走文件夹版 + `server.js`。
+> 单文件版是**整包自包含**：CSS、全部脚本、28 张牌面、4 个头像、PeerJS 全部内联，除联机外没有任何外部请求。
+> 公网服务器模式走 Cloudflare Pages 的 `/api/*`，电脑不用一直开着；手机直连走 P2P + TURN 中继，跨网络也能连。
 
 默认端口 8878，可用 `set PORT=9000` 改。
 
@@ -66,7 +68,7 @@
 
 **只做横屏**：按横屏比例铺满视口，宽屏自动扩展牌桌填满左右空间；手机竖屏锁定状态会自动把页面旋转成横屏。
 
-**版本号**：首页显示 `v1.0.0`；每次发版同步更新 `js/version.js`、首页徽章、`CHANGELOG.md` 和「更新记录」弹窗。
+**版本号**：首页显示 `v1.0.9`；每次发版同步更新 `js/version.js`、首页徽章、`CHANGELOG.md` 和「更新记录」弹窗。
 
 ---
 

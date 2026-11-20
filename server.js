@@ -9,7 +9,7 @@ import os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Engine, DEFAULT_RULE } from './js/engine.js';
-import { nextAction, discardCandidate } from './js/bot.js';
+import { nextAction, timeoutAction } from './js/bot.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8878);
@@ -31,6 +31,7 @@ const room = {
   lastBotAt: 0,
   lastKey: '',
   deadline: null,   // { at, kind: 'discard' | 'pass', seat }
+  rule: { ...DEFAULT_RULE, rounds: ROUNDS },
 };
 const OFFLINE_MS = 12000;   // 12 秒没心跳算掉线（客户端 400ms 轮询一次）
 
@@ -149,7 +150,7 @@ function allReady() {
   return true;
 }
 
-function startGame() {
+function startGame(rule = null) {
   fillWithBots();
   resetReady();
   resetNewMatch();
@@ -157,10 +158,14 @@ function startGame() {
   room.pausedAt = null;
   room.stats = { wins: [0, 0, 0, 0], fan: [0, 0, 0, 0] };
   room.lastResultKey = '';
+  if (rule && typeof rule === 'object') {
+    room.rule = { ...DEFAULT_RULE, ...room.rule, ...rule };
+    room.rule.rounds = [8, 16, 32].includes(Number(room.rule.rounds)) ? Number(room.rule.rounds) : 8;
+  }
   const names = room.players.map((p, i) => p.name || '玩家' + (i + 1));
   const botSeats = [];
   for (let i = 0; i < 4; i++) if (room.players[i].isBot) botSeats.push(i);
-  room.engine = new Engine({ seed: (Date.now() & 0xffffffff) >>> 0, names, botSeats, dealer: 0, roundIndex: 1 });
+  room.engine = new Engine({ seed: (Date.now() & 0xffffffff) >>> 0, names, botSeats, dealer: 0, roundIndex: 1, rule: room.rule });
   room.engine.startHand();
   room.started = true;
   room.over = false;
@@ -223,8 +228,10 @@ setInterval(() => {
     const d = room.deadline;
     room.deadline = null;
     if (d.kind === 'discard') {
-      const t = discardCandidate(s.players[d.seat].hand);
-      if (t !== null) applyAction({ type: 'discard', tile: t }, d.seat);
+      const p = s.players[d.seat];
+      p.declareIntent = false;
+      const a = timeoutAction(room.engine, d.seat);
+      if (a.type !== 'pass') applyAction(a, d.seat);
     } else {
       applyAction({ type: 'pass' }, d.seat);
     }
@@ -328,7 +335,7 @@ const server = http.createServer(async (req, res) => {
       const seat = seatByToken(body.token || '');
       if (seat !== 0) return json(res, 403, { error: '只有房主能开局' });
       if (room.started && !room.over) return json(res, 400, { error: '已经开局了' });
-      startGame();
+      startGame(body.rule || null);
       return json(res, 200, { ok: true });
     }
 

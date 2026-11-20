@@ -3,7 +3,7 @@
    —— 严格实现 INTERFACE.md 的 15 个接口函数，函数名 / 参数不改。
    界面只读引擎状态，所有操作一律走 G.onDiscard / G.onAct。
    ============================================================ */
-import { TILE_SRC, label, RED_RAW, SEAT_LABEL } from './tiles.js';
+import { TILE_SRC, label, RED_RAW, FA_RAW, BAI_RAW, isPizi, SEAT_LABEL } from './tiles.js';
 import { waitingTiles } from './win.js';
 import { APP_VERSION, APP_RELEASED_AT, APP_RELEASES } from './version.js';
 
@@ -39,8 +39,8 @@ const AVATARS = [
   'assets/img/avatar-qiang.jpg',
 ];
 const AVATAR_BY_NAME = { '涛': 0, '老李': 1, '小美': 2, '阿强': 3 };
-const MODE_TAG = { single: '单机对局', lan: '局域网联机', p2p: '手机联机' };
-const REASON = { selfDraw: '自摸', pointGang: '明杠', concealedGang: '暗杠', addedGang: '回头笑', redGang: '红中杠' };
+const MODE_TAG = { single: '单机对局', lan: '局域网联机', net: '公网联机', p2p: '手机联机' };
+const REASON = { selfDraw: '自摸', pointGang: '明杠', concealedGang: '暗杠', addedGang: '回头笑', redGang: '油杠' };
 const UI = {
   view: 'home',
   state: null,
@@ -49,6 +49,7 @@ const UI = {
   acts: [],
   timer: { ratio: 0, total: 30 },
   scale: 1,
+  portrait: false,
   toastTimer: null,
   result: null,
   boardOpen: false,
@@ -68,13 +69,21 @@ const num = (n) => ((n || 0) > 0 ? '+' + n : String(n == null ? 0 : n));
 
 function imgName(raw) {
   if (raw === RED_RAW) return 'Chun';
+  if (raw === FA_RAW) return 'Fa';
+  if (raw === BAI_RAW) return 'Bai';
   const suit = ['Man', 'Pin', 'Sou'][Math.floor(raw / 9)];
   return suit + ((raw % 9) + 1);
 }
 
-function tileHtml(raw, cls = '', extra = '') {
+function pointerHtml() {
+  return '<span class="discard-pointer"><i></i><b></b></span>';
+}
+
+function tileHtml(raw, cls = '', extra = '', withPointer = true) {
   const src = TILE_SRC[imgName(raw)] || '';
-  return `<div class="tile ${cls}" ${extra}><img src="${src}" alt="${esc(label(raw))}" draggable="false"></div>`;
+  const isLast = String(cls).split(/\s+/).includes('is-last');
+  const pointer = isLast && withPointer ? pointerHtml() : '';
+  return `<div class="tile ${cls}" ${extra}><img src="${src}" alt="${esc(label(raw))}" draggable="false">${pointer}</div>`;
 }
 
 function backHtml(style = '') {
@@ -82,7 +91,9 @@ function backHtml(style = '') {
 }
 
 function rotTile(raw, cls = '', extra = '') {
-  return `<div class="rot-slot">${tileHtml(raw, cls, extra)}</div>`;
+  const isLast = String(cls).split(/\s+/).includes('is-last');
+  const pointer = isLast ? pointerHtml() : '';
+  return `<div class="rot-slot${isLast ? ' is-last-slot' : ''}">${tileHtml(raw, cls, extra, false)}${pointer}</div>`;
 }
 
 /** 副露：碰 / 明杠 / 暗杠 / 回头笑 —— 杠一律「下 3 上 1，上面一张居中堆着」 */
@@ -128,6 +139,7 @@ function closeOverlays() {
   const p = $('paused'); if (p) p.classList.remove('show');
   const rb = $('ready-bar'); if (rb) rb.classList.remove('is-on');
   const rm = $('rules-modal'); if (rm) rm.classList.remove('show');
+  const mm = $('mode-modal'); if (mm) mm.classList.remove('show');
   const cm = $('changelog-modal'); if (cm) cm.classList.remove('show');
   UI.boardOpen = false;
   UI.result = null;
@@ -175,7 +187,15 @@ export function initTable(opts) {
   UI.voiceRound = 0;
   UI.voiceKey = '';
   UI.voiceMelds = [null, null, null, null];
+  UI.voicePizi = [null, null, null, null];
   UI.voiceResult = '';
+  UI.actionRound = 0;
+  UI.actionMelds = [null, null, null, null];
+  UI.actionPizi = [null, null, null, null];
+  UI.actionResult = '';
+  UI.callQueue = [];
+  UI.callTimer = null;
+  UI.callActive = false;
   UI.result = null; UI.boardOpen = false; UI.paused = false;
   UI.matchStats = { wins: [0, 0, 0, 0], fan: [0, 0, 0, 0] };
   UI.statRound = -1;
@@ -184,11 +204,26 @@ export function initTable(opts) {
   const p = $('paused'); if (p) p.classList.remove('show');
   const rb = $('ready-bar'); if (rb) rb.classList.remove('is-on');
   showView('table');
+  const addonLayer = $('addon-layer');
+  if (addonLayer && !addonLayer.__bound) {
+    addonLayer.__bound = true;
+    addonLayer.addEventListener('click', (e) => {
+      const b = e.target.closest('.addon-btn');
+      if (!b) return;
+      const v = Number(b.getAttribute('data-addon'));
+      if (G.onAct) G.onAct({ type: 'addon', value: v });
+    });
+  }
   renderAll();
 }
 
 export function backToHome() {
   clearTimeout(UI.toastTimer);
+  clearTimeout(UI.callTimer);
+  UI.callQueue = [];
+  UI.callActive = false;
+  const cc = $('center-call'); if (cc) { cc.classList.remove('show'); cc.innerHTML = ''; }
+  const rd = $('result-detail'); if (rd) rd.classList.remove('show');
   const t = $('toast'); if (t) { t.classList.remove('is-on'); t.textContent = ''; }
   setRoomCode(null);
   UI.sel = null;
@@ -231,6 +266,13 @@ function drawTable(s) {
   }
   const tag = $('mode-tag');
   if (tag) tag.textContent = MODE_TAG[G.mode] || '对局';
+  const play = $('mode-play');
+  if (play) {
+    const share = Math.max(1, Math.min(3, Number(s.baseShare) || 1));
+    const parts = [`倒${share}`, s.withDragons ? '中发白' : '红中'];
+    if (s.addonEnabled) parts.push('自由加增');
+    play.textContent = parts.join(' · ');
+  }
   if (G.mode !== 'single') {
     const inline = s.code ? String(s.code) : ((D.querySelector('#p2p-code-show .p2p-code') || {}).textContent || '');
     setRoomCodeState(inline.trim());
@@ -294,12 +336,16 @@ function drawTable(s) {
   drawRiver($('river-left'), s.players[(me + 3) % 4], s, true);
   drawRiver($('river-right'), s.players[(me + 1) % 4], s, true);
 
+  /* 自由加增：四家选择面板 + 中央状态字 */
+  drawAddons(s);
+
   /* 手牌 / 按钮 / 提示 */
   drawHand(s);
   drawActions(s);
   drawHint(s);
   drawTing(s);
   updateTimerDom();
+  announceActions(s);
   announceState(s);
 }
 
@@ -325,13 +371,18 @@ function plateHtml(s, seat, p) {
     <div class="timer-num"></div>`;
 }
 
-/** 打出去的红中（皮子）：摆在露牌区，一张牌一张 */
+/** 补出来的油（红中/发财/白板）：摆在露牌区，一张牌一张 */
 function redsHtml(p, rotated = false, big = false) {
-  const n = Math.min(4, (p && p.redsPlayed) || 0);
+  const n = Math.min(12, (p && p.redsPlayed) || 0);
   if (!n) return '';
-  const tc = big ? 'tile meld meld-big' : 'tile meld';
-  const one = rotated ? `<div class="rot-slot">${tileHtml(RED_RAW, 'tile meld')}</div>` : tileHtml(RED_RAW, tc);
-  return `<div class="meld-group is-reds${rotated ? ' rot' : ''}">${new Array(n).fill(one).join('')}${''}</div>`;
+  const kinds = [RED_RAW, FA_RAW, BAI_RAW];
+  const list = (p.piziTiles && p.piziTiles.length)
+    ? p.piziTiles.slice(0, 12)
+    : Array.from({ length: n }, (_, i) => kinds[i % 3]);
+  const one = (raw) => rotated
+    ? `<div class="rot-slot">${tileHtml(raw, 'tile meld')}</div>`
+    : tileHtml(raw, 'tile meld pizi');
+  return `<div class="meld-group is-reds${rotated ? ' rot' : ''}${big ? ' me-pizi' : ''}">${list.map(one).join('')}</div>`;
 }
 
 /* ---------------- 牌河 ---------------- */
@@ -344,13 +395,14 @@ function drawRiver(el, p, s, rotated) {
   if (last && last.seat === p.seat) {
     for (let i = river.length - 1; i >= 0; i--) if (river[i] === last.tile) { lastIdx = i; break; }
   }
-  const per = 6;
+  const per = rotated ? 6 : 7;
   const chunks = [];
   for (let i = 0; i < river.length; i += per) chunks.push(river.slice(i, i + per));
   const mark = (gi) => (gi === lastIdx ? 'is-last' : '');
 
   if (rotated) {
-    el.innerHTML = chunks.map((col, ci) => `<div class="col">${col.map((raw, k) => rotTile(raw, 'sm ' + mark(ci * per + k))).join('')}</div>`).join('');
+    const right = el.id === 'river-right';
+    el.innerHTML = chunks.map((col, ci) => `<div class="col">${col.map((raw, k) => rotTile(raw, 'sm ' + (right ? 'is-right ' : '') + mark(ci * per + k))).join('')}</div>`).join('');
   } else {
     el.innerHTML = chunks.map((row, ri) => `<div class="row">${row.map((raw, k) => tileHtml(raw, 'sm ' + mark(ri * per + k))).join('')}</div>`).join('');
   }
@@ -364,14 +416,17 @@ function drawHand(s) {
   const p = s.players[UI.me];
   if (!p) { el.innerHTML = ''; return; }
   const hand = (p.hand || []).slice();
-  const drawn = s.lastDrawn !== null && s.lastDrawn !== undefined ? s.lastDrawn : null;
+  const myTurn = s.phase === 'awaitingDiscard' && s.current === UI.me;
+  const canShowDrawn = (s.phase === 'awaitingDiscard' || s.phase === 'finalDraw') && s.current === UI.me;
+  /* 单机 state 是全局的，lastDrawn 在别人摸牌时也会变；只有轮到自己摸牌才把它放到最右边，
+     否则等待别人出牌时自己的牌会莫名其妙跳到右边，看起来像刚抓了一张。 */
+  const drawn = canShowDrawn && s.lastDrawn !== null && s.lastDrawn !== undefined ? s.lastDrawn : null;
   let drawnIdx = -1;
   if (drawn !== null) for (let i = hand.length - 1; i >= 0; i--) if (hand[i] === drawn) { drawnIdx = i; break; }
 
   const allowed = allowedSet();
   if (UI.sel && hand[UI.sel.i] !== UI.sel.raw) UI.sel = null;
   const sel = UI.sel;
-  const myTurn = s.phase === 'awaitingDiscard' && s.current === UI.me;
 
   let html = '';
   hand.forEach((raw, i) => {
@@ -385,20 +440,8 @@ function drawHand(s) {
     html += tileHtml(raw, cls, `data-raw="${raw}" data-i="${drawnIdx}"`);
   }
   el.innerHTML = html;
-  fitHandRow();
 }
 
-/* 手牌 + 露牌整行过宽时自动缩小，保证不出屏 */
-function fitHandRow() {
-  const wrap = $('hand-wrap');
-  if (!wrap) return;
-  wrap.style.transformOrigin = '50% 100%';
-  wrap.style.transform = 'translateX(-50%)';
-  const w = wrap.scrollWidth;
-  const avail = 920;
-  const k = w > avail ? Math.max(0.78, avail / w) : 1;
-  wrap.style.transform = `translateX(-50%) scale(${k})`;
-}
 
 function allowedSet() {
   const s = UI.state;
@@ -414,7 +457,7 @@ function allowedSet() {
     for (const t of new Set(hand)) {
       const rest = hand.slice();
       rest.splice(rest.indexOf(t), 1);
-      if (rest.length % 3 === 1 && waitingTiles(rest, (p.melds || []).length, true).length) out.add(t);
+      if (rest.length % 3 === 1 && waitingTiles(rest, (p.melds || []).length, true, gangCount(p), pengCount(p)).length) out.add(t);
     }
     return out;
   }
@@ -442,27 +485,31 @@ function remainingOf(raw) {
   return Math.max(0, 4 - seen);
 }
 
-/* 右下角听牌提示：听哪几张、每张还剩几张；手上有 14 张时跟着选中的牌实时变 */
+const gangCount = (p) => (p.melds || []).filter((m) => m.kind === 'gangExposed' || m.kind === 'gangConcealed' || m.kind === 'gangAdded').length;
+const pengCount = (p) => (p.melds || []).filter((m) => m.kind === 'peng').length;
+
+/* 右下角听牌提示：听哪几张、每张还剩几张；听牌后常显，别人回合也不消失 */
 function drawTing(s) {
   const el = $('ting-panel');
   if (!el) return;
   const p = s && s.players && s.players[UI.me];
   let waits = [];
   let tag = '';
-  /* 只在轮到自己出牌时才提示，别在家还没选牌/别人回合里乱报听口 */
   const myTurn = !!s && s.phase === 'awaitingDiscard' && s.current === UI.me;
-  if (p && UI.view === 'table' && myTurn) {
+  if (p && UI.view === 'table') {
     const hand = p.hand || [];
     const melds = (p.melds || []).length;
+    const gc = gangCount(p), pc = pengCount(p);
     const calc = (idx) => {
       const rest = hand.slice();
       rest.splice(idx, 1);
-      if (rest.includes(RED_RAW)) return [];
-      return waitingTiles(rest, melds, true);
+      if (rest.some(isPizi)) return [];
+      return waitingTiles(rest, melds, true, gc, pc);
     };
     if (hand.length % 3 === 1) {
-      if (!hand.includes(RED_RAW)) waits = waitingTiles(hand, melds, true);
-    } else if (hand.length % 3 === 2) {
+      /* 13 张定型手牌：不管轮到谁，只要听牌就常显听口 */
+      if (!hand.some(isPizi)) waits = waitingTiles(hand, melds, true, gc, pc);
+    } else if (myTurn && hand.length % 3 === 2) {
       /* 碰完要自己选打哪张时，不算「默认打掉摸的这张」，等选中再提示 */
       const afterPeng = s.mustDiscard === UI.me || s.lastDrawn === null || s.lastDrawn === undefined;
       const selOK = !!(UI.sel && hand[UI.sel.i] === UI.sel.raw);
@@ -504,10 +551,44 @@ function drawTing(s) {
   const more = waits.length > shown.length ? `<span class="ting-more">等 ${waits.length} 种</span>` : '';
   el.innerHTML = `${tag ? `<div class="ting-note">${tag}</div>` : ''}<div class="ting-tiles">${items}${more}</div>`;
   el.classList.add('is-on');
+  el.classList.toggle('is-lifted', !!(myTurn && s.lastDrawn !== null && s.lastDrawn !== undefined && p && (p.hand || []).length >= 11));
   /* 有操作按钮时贴着按钮上方，否则贴右下角 */
   const rows = Math.ceil((UI.acts || []).length / 2);
   el.style.right = '36px';
   el.style.bottom = rows ? (84 + rows * 78 + (rows - 1) * 12 + 12) + 'px' : '22px';
+}
+
+
+/* ---------------- 自由加增 ---------------- */
+function drawAddons(s) {
+  const badges = $('addon-badges');
+  const layer = $('addon-layer');
+  if (!badges || !layer) return;
+  if (!s.addonEnabled) { badges.innerHTML = ''; layer.classList.remove('is-on'); layer.innerHTML = ''; return; }
+  const addons = s.addons || [0, 0, 0, 0];
+  const chosen = s.addonChosen || [true, true, true, true];
+  const txt = (v) => v > 0 ? `增${v}` : '不加增';
+  const pos = ['me', 'right', 'top', 'left'];
+  badges.innerHTML = pos.map((p, i) => {
+    const seat = (UI.me + i) % 4;
+    return `<span class="addon-badge ${p}${!chosen[seat] ? ' is-wait' : ''}">${chosen[seat] ? txt(addons[seat]) : '待选'}</span>`;
+  }).join('');
+
+  const mine = UI.me;
+  const active = s.phase === 'awaitingAddon' && !chosen[mine];
+  if (!active) { layer.classList.remove('is-on'); layer.innerHTML = ''; return; }
+  const names = (s.players || []).map((p) => p.name);
+  const status = names.map((n, i) => `${esc(n)}：${chosen[i] ? txt(addons[i]) : '未选'}`).join('　');
+  const baseShare = Math.max(1, Math.min(3, Number(s.baseShare) || 1));
+  layer.innerHTML = `<div class="addon-card">
+    <div class="addon-title">第 ${s.roundIndex || 1} 局 · 自由加增</div>
+    <div class="addon-sub">份子 = ${baseShare} + 加增 + 油数${baseShare > 1 ? `（围增倒${baseShare}）` : ''}。四家全部选完才发牌。</div>
+    <div class="addon-choices">
+      ${[0, 1, 2, 3].map((v) => `<button class="addon-btn${v === 0 ? ' ghost' : ''}" data-addon="${v}">${v === 0 ? '不加增' : '增 ' + v + ' 份'}</button>`).join('')}
+    </div>
+    <div class="addon-status">${status}</div>
+  </div>`;
+  layer.classList.add('is-on');
 }
 
 /* ---------------- 动作按钮 ---------------- */
@@ -523,16 +604,23 @@ function drawActions(s) {
     if (pend.includes('peng')) acts.push({ type: 'peng', label: '碰', cls: 'peng' });
     if (pend.includes('gang')) acts.push({ type: 'gangExposed', label: '杠', cls: 'gang' });
     acts.push({ type: 'pass', label: '过', cls: 'pass' });
-  } else if (s.phase === 'awaitingDiscard' && s.current === UI.me) {
+  } else if ((s.phase === 'awaitingDiscard' || s.phase === 'finalDraw') && s.current === UI.me) {
     const raw = (G.getMyActions ? G.getMyActions() : []) || [];
     const gangs = [];
     let hasHu = false;
     for (const a of raw) {
       const t = typeof a === 'string' ? a : a.type;
-      if (t === 'hu') { acts.push({ type: 'hu', label: '胡', cls: 'hu' }); hasHu = true; }
+      if (t === 'bu') { acts.push({ type: 'bu', label: '补', cls: 'bu' }); hasHu = true; }
+      else if (t === 'hu') { acts.push({ type: 'hu', label: '胡', cls: 'hu' }); hasHu = true; }
       else if (t === 'gangConcealed' || t === 'gangAdded') gangs.push(a);
     }
-    if (gangs.length) acts.push({ type: 'gangPick', label: '杠', cls: 'gang', gangs });
+    if (gangs.length === 1) {
+      const g = gangs[0];
+      acts.push({ type: g.type, tile: g.tile, label: '杠', cls: 'gang' });
+    } else if (gangs.length > 1) {
+      acts.push({ type: 'gangPick', label: '杠', cls: 'gang', gangs });
+    }
+    if (s.phase === 'finalDraw' && !acts.some((a) => a.type === 'bu')) acts.push({ type: 'finalPass', label: '过', cls: 'pass' });
     const p = s.players[UI.me];
     const decl = G.getDeclareOptions ? (G.getDeclareOptions() || []) : (s.myDeclareOptions || []);
     if (p && !p.declared && !p.declareIntent && !hasHu && decl.length > 0) {
@@ -560,11 +648,15 @@ function drawHint(s) {
   const parts = [];
   const pend = G.getPendingOptions ? G.getPendingOptions() : null;
   const myTurn = s.phase === 'awaitingDiscard' && s.current === UI.me;
+  let waiting = false;
 
-  if (s.phase === 'awaitingClaim' && pend && pend.length) {
+  if (s.phase === 'awaitingAddon') {
+    parts.push('自由加增 · 请选择本局加增份数');
+  } else if (s.phase === 'awaitingClaim' && pend && pend.length) {
     parts.push(`别家打出 <b>${esc(label(s.pending ? s.pending.tile : 0))}</b>，可以碰 / 杠 / 过`);
   } else if (myTurn) {
-    if (UI.sel) parts.push(`已选中 <b>${esc(label(UI.sel.raw))}</b> · 再点一次打出`);
+    if (p && p.hand.some(isPizi)) parts.push('手里有油 · 点「补」摆出后才能出牌');
+    else if (UI.sel) parts.push(`已选中 <b>${esc(label(UI.sel.raw))}</b> · 再点一次打出`);
     else if (p && p.declared) parts.push(`<span class="warn">已报听</span> · 只能打摸到的 <b>${esc(label(s.lastDrawn))}</b>`);
     else if (p && p.declareIntent) parts.push(`<span class="warn">已声明报听</span> · 请打出能听牌的牌`);
     else if (p && s.mustDiscard === UI.me) parts.push('碰完先打一张 · 点牌选中，再点打出');
@@ -573,9 +665,10 @@ function drawHint(s) {
     parts.push(s.drawnGame ? '本局流局' : '本局结束');
   } else {
     const cur = s.players[s.current];
-    if (cur) parts.push(`等待 <b>${esc(cur.name)}</b> 出牌`);
+    if (cur) { parts.push(`等待 <b>${esc(cur.name)}</b> 出牌`); waiting = true; }
   }
 
+  el.classList.toggle('is-waiting', waiting);
   if (!parts.length) { el.classList.add('is-off'); return; }
   el.classList.remove('is-off');
   el.innerHTML = parts.join(' · ');
@@ -691,15 +784,20 @@ export function showResult(payload) {
 export function hideResult() {
   const box = $('result');
   if (box) box.classList.remove('show');
+  closeDetail();
   UI.result = null;
 }
 
 function resultCtx(payload) {
   const s = UI.state || {};
-  const r = (s.result && !payload.drawnGame && !payload.final) ? s.result : {};
+  const r = payload.lastResult || s.result || {};
   const players = s.players || [];
   const names = payload.names || players.map((p) => p.name) || [];
   return { s, r, players, names };
+}
+
+function detailButton(label = '详细计算数据') {
+  return `<button class="big-btn ghost" id="res-detail">${label}</button>`;
 }
 
 function winHtml(payload) {
@@ -714,7 +812,10 @@ function winHtml(payload) {
   const hand = r.hand || payload.hand || [];
   const melds = r.melds || payload.melds || [];
   const gang = r.gangSettled || payload.gangSettled || [];
-  const winnerReds = r.winnerReds != null ? r.winnerReds : ((players[winner] && players[winner].redsPlayed) || 0);
+  const dragonSets = r.dragonSets || payload.dragonSets || [];
+  const addons = (s.addons || []).slice();
+  const piziTiles = players.map((p) => (p.piziTiles || []).slice());
+  const share = Math.max(1, Math.min(3, Number(s.baseShare) || Number(r.baseShare) || 1));
 
   const fanChips = fans.map((f) => `<span class="fan-chip${f.add ? ' add' : ''}">${esc(f.name)} <b>${f.add ? '+' : '×'}${f.mult}</b></span>`).join('');
   const handTiles = hand.map((t) => tileHtml(t, '')).join('') + melds.map((m) => meldHtml(m)).join('');
@@ -732,37 +833,48 @@ function winHtml(payload) {
 
   return `
     <div class="result-title">${esc(wn)} 自摸</div>
-    <div class="result-sub">第 ${s.roundIndex || 1}/${G.totalRounds || 8} 局 · 自摸${mult != null ? ` · 总倍数 ${mult}` : ''}</div>
+    <div class="result-sub">第 ${s.roundIndex || 1}/${G.totalRounds || 8} 局 · 自摸${mult != null ? ` · 总倍数 ${mult}` : ''}${share > 1 ? ` · 围增倒${share}` : ''}</div>
     ${fanChips ? `<div class="result-fans">${fanChips}</div>` : ''}
     <div class="result-hand">${handTiles}</div>
-    <div class="round-board">${roundBoard(scores, delta, names, { winner, wr: winnerReds, reds: players.map((p) => p.redsPlayed || 0) })}</div>
+    <div class="round-board">${roundBoard(scores, delta, names, { winner, withDragons: !!s.withDragons, reds: players.map((p) => p.redsPlayed || 0), piziTiles, addons, addonEnabled: !!s.addonEnabled })}</div>
     ${readyStrip(payload.ready, names, payload.mySeat)}
     <div class="result-actions">
       <button class="big-btn" id="res-next">下 一 局</button>
+      ${detailButton()}
       <button class="big-btn ghost" id="res-exit">退出牌桌</button>
     </div>`;
 }
 
-/* 单局分数面板：本局份数（1+N油互乘）+ 本局得分 + 总分，赢家高亮 */
+/* 单局分数面板：每家只显示本局增减分、累计总分、油明细；赢家高亮。
+   中发白模式拆成中/发/白；自由加增只给选了增的玩家显示「增」。 */
 function roundBoard(scores, delta, names, opt = {}) {
   const winner = opt.winner != null ? opt.winner : -1;
-  const wr = opt.wr || 0;
   const reds = opt.reds || [0, 0, 0, 0];
-  const fmt = (v) => {
-    const f = Math.round((v / 10) * 10) / 10;
-    return (f > 0 ? '+' : '') + String(f);
-  };
+  const piziTiles = opt.piziTiles || [];
+  const addons = opt.addons || [0, 0, 0, 0];
+  const addonEnabled = !!opt.addonEnabled;
+  const countPizi = (seat, raw) => (piziTiles[seat] || []).filter((t) => t === raw).length;
   return (scores || []).map((v, i) => {
     const fen = delta[i] || 0;
     const isWin = i === winner;
     const pr = reds[i] || 0;
-    const oil = winner < 0 ? '' : isWin ? `(1+${wr}油)×3家` : `(1+${wr}油)×(1+${pr}油)`;
+    const addon = addons[i] || 0;
+    const hasAddon = addonEnabled && addon > 0;
+    const pizi = opt.withDragons
+      ? `<span class="rb-pizi-counts">
+          <span class="rb-pizi"><em>中</em><b>${countPizi(i, RED_RAW)}</b></span>
+          <span class="rb-pizi"><em>发</em><b>${countPizi(i, FA_RAW)}</b></span>
+          <span class="rb-pizi"><em>白</em><b>${countPizi(i, BAI_RAW)}</b></span>
+          ${hasAddon ? `<span class="rb-pizi rb-addon"><em>增</em><b>${addon}</b></span>` : ''}
+        </span>`
+      : `<span class="rb-stat rb-red"><em>红中</em><b>${pr} 个</b></span>
+        ${hasAddon ? `<span class="rb-stat rb-addon"><em>增</em><b>${addon} 份</b></span>` : ''}`;
     return `
     <div class="rb-cell${i === UI.me ? ' is-me' : ''}${isWin ? ' is-win' : ''}">
       <span class="rb-name">${esc(names[i] || ('座位' + i))}${isWin ? '<i class="rb-hu">胡</i>' : ''}</span>
-      <b class="rb-fen ${fen > 0 ? 'pos' : fen < 0 ? 'neg' : ''}">${fmt(fen)}<em>份</em></b>
-      <span class="rb-oil">${oil}</span>
-      <span class="rb-total">本局 ${num(fen)} 分 · 总分 ${num(v)}</span>
+      <span class="rb-stat"><em>本局</em><b class="${fen > 0 ? 'pos' : fen < 0 ? 'neg' : ''}">${num(fen)} 分</b></span>
+      <span class="rb-stat"><em>总分</em><b class="${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${num(v)} 分</b></span>
+      ${pizi}
     </div>`;
   }).join('');
 }
@@ -771,6 +883,9 @@ function drawnHtml(payload) {
   const { s, players, names } = resultCtx(payload);
   const gang = (s.result && s.result.gangSettled) || payload.gangSettled || [];
   const scores = payload.scores || players.map((p) => p.score);
+  const addons = (s.addons || []).slice();
+  const piziTiles = players.map((p) => (p.piziTiles || []).slice());
+  const share = Math.max(1, Math.min(3, Number(s.baseShare) || 1));
   const delta = [0, 0, 0, 0];
   for (const g of gang) {
     if (g.amount == null) continue;
@@ -779,17 +894,58 @@ function drawnHtml(payload) {
   }
   return `
     <div class="result-title">流 局</div>
-    <div class="result-sub">牌墙摸完 · 庄家不变 · 第 ${s.roundIndex || 1}/${G.totalRounds || 8} 局</div>
-    <div class="round-board">${roundBoard(scores, delta, names, { winner: -1, reds: (players || []).map((p) => p.redsPlayed || 0) })}</div>
+    <div class="result-sub">牌墙摸完 · 庄家不变 · 第 ${s.roundIndex || 1}/${G.totalRounds || 8} 局${share > 1 ? ` · 围增倒${share}` : ''}</div>
+    <div class="round-board">${roundBoard(scores, delta, names, { winner: -1, withDragons: !!s.withDragons, reds: (players || []).map((p) => p.redsPlayed || 0), piziTiles, addons, addonEnabled: !!s.addonEnabled })}</div>
     ${readyStrip(payload.ready, names, payload.mySeat)}
     <div class="result-actions">
       <button class="big-btn" id="res-next">下 一 局</button>
+      ${detailButton()}
       <button class="big-btn ghost" id="res-exit">退出牌桌</button>
     </div>`;
 }
 
 function finalHtml(payload) {
-  const { s, players, names } = resultCtx(payload);
+  const { s, r, players, names } = resultCtx(payload);
+  const lastResult = payload.lastResult || s.result || r || null;
+  const lastWinner = lastResult && lastResult.winner != null
+    ? lastResult.winner
+    : (payload.winnerSeat != null ? payload.winnerSeat : null);
+  const lastHand = (lastResult && lastResult.hand) || payload.hand || [];
+  const lastMelds = (lastResult && lastResult.melds) || payload.melds || [];
+  const lastFans = (lastResult && lastResult.fans) || payload.fans || [];
+  const lastPayments = (lastResult && lastResult.payments) || {};
+  const lastGang = (lastResult && lastResult.gangSettled) || [];
+  const lastDragon = (lastResult && lastResult.dragonSets) || [];
+  const lastScores = (lastResult && lastResult.scores) || payload.scores || players.map((p) => p.score);
+  const lastShare = Math.max(1, Math.min(3, Number((lastResult && lastResult.baseShare) || s.baseShare) || 1));
+  const lastDelta = [0, 0, 0, 0];
+  if (lastResult && lastWinner != null) {
+    for (const k of Object.keys(lastPayments)) lastDelta[+k] -= lastPayments[k];
+    lastDelta[lastWinner] += Object.values(lastPayments).reduce((a, b) => a + b, 0);
+  }
+  for (const g of lastGang) {
+    if (g.amount == null) continue;
+    lastDelta[g.from] -= g.amount;
+    lastDelta[g.to] += g.amount;
+  }
+  const lastNote = lastResult
+    ? (lastResult.winner != null
+      ? `总分倍数 ${lastResult.mult != null ? lastResult.mult : '—'} · 基础 ${lastResult.base != null ? lastResult.base : '—'} 分 · 三家各付`
+      : (lastResult.drawnGame ? '最后一局流局' : '最后一局已结算'))
+    : '';
+  const winnerBlock = (lastWinner != null && lastHand.length)
+    ? `<div class="final-winner">
+        <div class="final-winner-title">最后一局 · ${esc(names[lastWinner] || ('座位' + lastWinner))} 自摸</div>
+        ${lastNote ? `<div class="final-winner-meta">${esc(lastNote)}</div>` : ''}
+        <div class="final-winner-fans">${lastFans.map((f) => `<span class="fan-chip${f.add ? ' add' : ''}">${esc(f.name)} <b>${f.add ? '+' : '×'}${f.mult}</b></span>`).join('')}</div>
+        <div class="result-hand">${lastHand.map((t) => tileHtml(t, '')).join('')}${lastMelds.map((m) => meldHtml(m)).join('')}</div>
+        ${(lastResult && (lastResult.winner != null || lastGang.length || lastDragon.length))
+          ? `<div class="round-board">${roundBoard(lastScores, lastDelta, names, { winner: lastWinner, withDragons: !!s.withDragons, reds: players.map((p) => p.redsPlayed || 0), piziTiles: players.map((p) => (p.piziTiles || []).slice()), addons: (s.addons || []).slice(), addonEnabled: !!s.addonEnabled })}</div>`
+          : ''}
+      </div>`
+    : (lastResult && lastResult.drawnGame
+      ? `<div class="final-winner"><div class="final-winner-title">最后一局 · 流局</div><div class="final-winner-meta">牌墙摸完，无人胡牌；杠分和龙分已结算</div></div>`
+      : '');
   const scores = payload.scores || players.map((p) => p.score);
   const st = payload.stats || UI.matchStats || { wins: [], fan: [] };
   const ranked = payload.ranked || (scores || []).map((score, seat) => ({ seat, name: names[seat] || ('座位' + seat), score })).sort((a, b) => b.score - a.score);
@@ -806,13 +962,15 @@ function finalHtml(payload) {
   const need = G.newMatchTotal ? G.newMatchTotal() : 4;
   return `
     <div class="result-title">本 场 结 束</div>
-    <div class="result-sub">共 ${payload.rounds || G.totalRounds || 8} 局</div>
+    <div class="result-sub">共 ${payload.rounds || G.totalRounds || 8} 局${lastShare > 1 ? ` · 围增倒${lastShare}` : ''}</div>
+    ${winnerBlock}
     <table class="result-table">
       <thead><tr><th style="width:56px">名次</th><th>玩家</th><th style="width:80px">胡局</th><th style="width:80px">总番</th><th style="width:100px">总分</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div class="result-actions">
       ${canNew ? `<button class="big-btn" id="res-again">再来一场${G.mode !== 'single' ? `（${clicks}/${need}）` : ''}</button>` : ''}
+      ${lastResult ? detailButton('最后一局详细数据') : ''}
       <button class="big-btn ghost" id="res-home">回首页</button>
     </div>`;
 }
@@ -823,9 +981,127 @@ function readyStrip(ready, names, mySeat) {
   return `<div class="ready-strip" data-ready>${chips}</div>`;
 }
 
+const REASON_LABEL = {
+  pointGang: '明杠',
+  concealedGang: '暗杠',
+  addedGang: '回头笑',
+  redGang: '油杠',
+  dragonAdded: '中发白各2 · 回头笑',
+  dragonConcealed: '中发白各3 · 暗杠',
+  dragonQuad: '四张油暗杠',
+};
+
+function showDetail(payload) {
+  const box = $('result-detail');
+  const card = $('detail-card');
+  if (!box || !card || !payload) return;
+  card.innerHTML = detailHtml(payload);
+  const close = card.querySelector('#detail-close');
+  if (close) close.addEventListener('click', () => { sfx('tap'); closeDetail(); });
+  box.classList.add('show');
+}
+
+export function closeDetail() {
+  const box = $('result-detail');
+  if (box) box.classList.remove('show');
+}
+
+function detailHtml(payload) {
+  const { s, r, players, names } = resultCtx(payload);
+  const business = r || {};
+  const payments = business.payments || payload.payments || {};
+  const gang = business.gangSettled || payload.gangSettled || [];
+  const dragonSets = business.dragonSets || payload.dragonSets || [];
+  const scores = business.scores || payload.scores || players.map((p) => p.score) || [0, 0, 0, 0];
+  const winner = business.winner != null ? business.winner : payload.winnerSeat;
+  const base = business.base != null ? business.base : payload.base;
+  const baseShare = Math.max(1, Math.min(3, Number(business.baseShare) || Number(s.baseShare) || 1));
+  const addons = (s.addons || []).slice();
+  const addonEnabled = !!s.addonEnabled;
+  const cap = s.withDragons ? 12 : 8;
+  const winnerReds = business.winnerReds != null ? business.winnerReds : (players[winner] && players[winner].redsPlayed) || 0;
+  const total = Object.values(payments).reduce((a, b) => a + Number(b || 0), 0);
+
+  const delta = [0, 0, 0, 0];
+  const huDelta = [0, 0, 0, 0];
+  const gangDelta = [0, 0, 0, 0];
+  if (winner != null) {
+    for (const k of Object.keys(payments)) {
+      const v = Number(payments[k] || 0);
+      huDelta[+k] -= v;
+      huDelta[winner] += v;
+    }
+  }
+  for (const g of gang) {
+    if (g.amount == null) continue;
+    gangDelta[g.from] -= g.amount;
+    gangDelta[g.to] += g.amount;
+  }
+  for (let i = 0; i < 4; i++) delta[i] = huDelta[i] + gangDelta[i];
+
+  const huRows = winner != null ? Object.keys(payments).map((k) => {
+    const payer = +k;
+    const v = Number(payments[k] || 0);
+    const wm = baseShare + (addonEnabled ? (addons[winner] || 0) : 0) + Math.min(winnerReds, cap);
+    const pm = baseShare + (addonEnabled ? (addons[payer] || 0) : 0) + Math.min(players[payer] && players[payer].redsPlayed || 0, cap);
+    return `<tr><td class="name">${esc(names[payer] || ('座位' + payer))}</td><td>自摸</td><td>基础 ${num(base)} × ${wm} × ${pm}</td><td class="neg">-${num(v)}</td><td>${esc(names[winner] || ('座位' + winner))} +${num(v)}</td></tr>`;
+  }).join('') : '';
+
+  const gangRows = gang.map((g) => {
+    const reasonLabel = REASON_LABEL[g.reason] || g.reason || '杠分';
+    const tile = g.tile != null ? ` · ${label(g.tile)}` : '';
+    return `<tr><td class="name">${esc(names[g.from] || ('座位' + g.from))}</td><td>${esc(reasonLabel)}${esc(tile)}</td><td>${esc(names[g.to] || ('座位' + g.to))}</td><td>${num(g.amount)}</td></tr>`;
+  }).join('');
+
+  const dragonRows = dragonSets.map((d) => {
+    const seat = d.seat != null ? d.seat : -1;
+    const dragonLabel = d.kind === 'added' ? '中发白各2 · 回头笑' : d.kind === 'concealed' ? '中发白各3 · 暗杠' : `四张${d.tile != null ? label(d.tile) : '油'} · 暗杠`;
+    const counts = d.counts ? `（中${d.counts[0]} / 发${d.counts[1]} / 白${d.counts[2]}）` : '';
+    return `<tr><td class="name">${seat >= 0 ? esc(names[seat] || ('座位' + seat)) : '—'}</td><td>${esc(dragonLabel)}${esc(counts)}</td><td>每家 ${num(d.base || 0)} 分</td><td>${num(d.total || 0)}</td></tr>`;
+  }).join('');
+
+  const playerRows = [0, 1, 2, 3].map((seat) => {
+    const name = names[seat] || ('座位' + seat);
+    return `<tr class="${seat === UI.me ? 'is-me' : ''}"><td class="name">${esc(name)}${seat === winner ? '<span class="rb-hu">胡</span>' : ''}</td><td class="${huDelta[seat] > 0 ? 'pos' : huDelta[seat] < 0 ? 'neg' : ''}">${num(huDelta[seat])}</td><td class="${gangDelta[seat] > 0 ? 'pos' : gangDelta[seat] < 0 ? 'neg' : ''}">${num(gangDelta[seat])}</td><td class="${delta[seat] > 0 ? 'pos' : delta[seat] < 0 ? 'neg' : ''}">${num(delta[seat])}</td><td>${num(scores[seat] || 0)}</td></tr>`;
+  }).join('');
+
+  const winnerLine = winner != null
+    ? `<div class="detail-sub">${esc(names[winner] || ('座位' + winner))} 自摸 · 总倍数 ${num(business.mult || payload.mult || 0)} · 基础 ${num(base)} 分 · 三家各付<br><span class="detail-formula">算式：<b>基础分 × 赢家份子 × 付家份子</b>（份子 = 围增倒${baseShare} + 加增 + 油数，中发白油数封顶 ${cap}）</span></div>`
+    : `<div class="detail-sub">本局流局，只结算杠分 / 龙分</div>`;
+
+  return `
+    <div class="detail-head">
+      <div>
+        <div class="detail-title">详细计算数据</div>
+        <div class="detail-sub">第 ${s.roundIndex || 1} 局${s.drawnGame || payload.drawnGame ? ' · 流局' : ''}${s.withDragons ? ' · 中发白' : ' · 红中'}</div>
+      </div>
+      <button class="detail-close" id="detail-close" aria-label="关闭">×</button>
+    </div>
+    ${winnerLine}
+    <div class="detail-section">
+      <h4>胡牌分（具体到每个人）</h4>
+      ${winner != null && huRows ? `<table class="detail-table"><thead><tr><th>付款人</th><th>项目</th><th>算式</th><th>分数</th><th>收款人</th></tr></thead><tbody>${huRows}</tbody></table>` : '<div class="detail-empty">本局没有胡牌分</div>'}
+    </div>
+    <div class="detail-section">
+      <h4>杠分 / 龙分（具体到每个人）</h4>
+      ${gangRows ? `<table class="detail-table"><thead><tr><th>付款人</th><th>项目</th><th>收款人</th><th>分数</th></tr></thead><tbody>${gangRows}</tbody></table>` : '<div class="detail-empty">本局没有杠分 / 龙分</div>'}
+    </div>
+    ${dragonRows ? `<div class="detail-section"><h4>中发白局末组合</h4><table class="detail-table"><thead><tr><th>玩家</th><th>项目</th><th>基础</th><th>合计</th></tr></thead><tbody>${dragonRows}</tbody></table></div>` : ''}
+    <div class="detail-section">
+      <h4>每个人本局汇总</h4>
+      <table class="detail-table">
+        <thead><tr><th>玩家</th><th>胡牌分</th><th>杠分 / 龙分</th><th>本局合计</th><th>累计总分</th></tr></thead>
+        <tbody>${playerRows}</tbody>
+      </table>
+      <div class="detail-row-note">胡牌分已按三家分别列出；杠分 / 龙分同样逐笔对应付款人和收款人；本局合计 = 胡牌分 + 杠分 / 龙分。</div>
+    </div>`;
+}
+
 function bindResult(card) {
   const next = card.querySelector('#res-next');
   if (next) next.addEventListener('click', () => { sfx('tap'); if (G.onNext) G.onNext(); });
+  const detail = card.querySelector('#res-detail');
+  if (detail) detail.addEventListener('click', () => { sfx('tap'); showDetail(UI.result); });
   const exit = card.querySelector('#res-exit');
   if (exit) exit.addEventListener('click', () => { sfx('tap'); if (G.onExit) G.onExit(); else backToHome(); });
   const again = card.querySelector('#res-again');
@@ -924,15 +1200,29 @@ export function renderScoreboard() {
 
 /* ---------------- 掉线 ---------------- */
 
-export function setPaused(names, waiting) {
-  const on = !!waiting && Array.isArray(names) && names.length > 0;
+export function setPaused(names, waiting, opts = {}) {
+  const on = !!waiting && (Array.isArray(names) ? names.length > 0 : true);
   const box = $('paused');
   if (!box) return;
   UI.paused = on;
   box.classList.toggle('show', on);
-  if (on) {
-    const t = $('pause-text');
-    if (t) t.innerHTML = `${esc(names.join('、'))} 掉线<br><span style="font-size:13px;opacity:.6">全场暂停，等待重连…</span>`;
+  if (!on) {
+    const rb = $('pause-reconnect'); if (rb) { rb.classList.remove('is-on'); rb.onclick = null; }
+    return;
+  }
+  const roomEl = $('pause-room');
+  const room = String(opts.roomCode || (($('room-code') || {}).textContent || '') || '').trim();
+  if (roomEl) roomEl.textContent = room ? `房号 ${room}` : '';
+  const t = $('pause-text');
+  if (t) {
+    const who = Array.isArray(names) && names.length ? `${names.join('、')} 掉线` : '网络连接中断';
+    t.innerHTML = `${esc(who)}<br><span style="font-size:13px;opacity:.6">全场暂停，等待重连…</span>`;
+  }
+  const rb = $('pause-reconnect');
+  if (rb) {
+    const can = !!opts.canRefresh;
+    rb.classList.toggle('is-on', can);
+    rb.onclick = can ? (opts.onRefresh || (() => { if (window.__jianliReconnect) window.__jianliReconnect(); })) : null;
   }
 }
 
@@ -1012,6 +1302,7 @@ export function applyLayoutUnits() {
     }
   }
   UI.scale = s;
+  UI.portrait = portrait;
   const rh = $('rotate-hint');
   if (rh) rh.classList.toggle('is-on', !portrait && vw < vh * 1.02);
 }
@@ -1121,22 +1412,29 @@ function primeSpeech() {
   } catch (e) {}
 }
 
+let speechTimer = 0;
 function speak(text) {
   if (!VOICE_ON || !SPEECH || !text) return;
   /* 参考旧版：播报前直接 cancel 掉上一句，不做队列。
-     手机 TTS 队列很容易一首一句地积压，听起来就像延迟好几秒。 */
+     手机 TTS 队列很容易一句一句地积压，听起来就像延迟好几秒。
+     cancel 后不能立刻 speak：iOS 会把新一句的开头（也就是玩家名字）吞掉，
+     所以留一个很短的间隔再起播。 */
   try {
     if (SPEECH.speaking || SPEECH.pending) SPEECH.cancel();
     if (SPEECH.paused) SPEECH.resume();
   } catch (e) {}
-  try {
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'zh-CN';
-    u.rate = 1.15;
-    u.pitch = 1.05;
-    u.volume = 1;
-    SPEECH.speak(u);
-  } catch (e) {}
+  clearTimeout(speechTimer);
+  speechTimer = setTimeout(() => {
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'zh-CN';
+      if (speechVoice) u.voice = speechVoice;
+      u.rate = 1.15;
+      u.pitch = 1.05;
+      u.volume = 1;
+      SPEECH.speak(u);
+    } catch (e) {}
+  }, 60);
 }
 
 if (SPEECH) {
@@ -1146,9 +1444,99 @@ if (SPEECH) {
 D.addEventListener('pointerdown', () => { if (!G.voicePrimed) primeSpeech(); }, { once: true });
 D.addEventListener('touchstart', () => { if (!G.voicePrimed) primeSpeech(); }, { once: true, passive: true });
 
-function voiceName(s, seat) {
-  const p = s && s.players && s.players[seat];
-  return (p && p.name) || (G.seatNames && G.seatNames[seat]) || (WIND[seat] + '家');
+/* ---------------- 牌桌中央动作提示 ---------------- */
+
+function meldCallLabel(kind) {
+  return kind === 'peng' ? '碰'
+    : kind === 'gangExposed' ? '明杠'
+      : kind === 'gangConcealed' ? '暗杠'
+        : kind === 'gangAdded' ? '回头笑' : '杠';
+}
+
+function queueCenterCall(text, raw = null) {
+  if (!text) return;
+  UI.callQueue = UI.callQueue || [];
+  UI.callQueue.push({ text, raw });
+  if (!UI.callActive) drainCenterCall();
+}
+
+function drainCenterCall() {
+  const box = $('center-call');
+  if (!box) { UI.callQueue = []; UI.callActive = false; return; }
+  const item = UI.callQueue.shift();
+  if (!item) { UI.callActive = false; box.classList.remove('show'); box.innerHTML = ''; return; }
+  UI.callActive = true;
+  box.innerHTML = `<span class="cc-text">${esc(item.text)}</span>${item.raw !== null && item.raw !== undefined ? `<span class="cc-tile">${tileHtml(item.raw, 'tile')}</span>` : ''}`;
+  box.classList.add('show');
+  clearTimeout(UI.callTimer);
+  UI.callTimer = setTimeout(() => {
+    box.classList.remove('show');
+    /* 留一点淡出间隔，避免连续动作闪成一张 */
+    setTimeout(drainCenterCall, 80);
+  }, 1000);
+}
+
+function announceActions(s) {
+  if (!s || !s.players) return;
+  const round = s.roundIndex || 1;
+  const first = UI.actionRound !== round;
+  if (first) {
+    UI.actionRound = round;
+    UI.actionMelds = [null, null, null, null];
+    UI.actionPizi = [null, null, null, null];
+    UI.actionResult = '';
+    for (let seat = 0; seat < 4; seat++) {
+      const p = s.players[seat] || {};
+      UI.actionMelds[seat] = ((p.melds || []).map((m) => `${m.kind}:${m.tile}`).join('|'));
+      UI.actionPizi[seat] = (p.piziTiles || []).length;
+    }
+    if (s.phase === 'finished') UI.actionResult = `${round}|${s.drawnGame ? 'draw' : (s.result && s.result.winner) || ''}`;
+    return;
+  }
+
+  for (let seat = 0; seat < 4; seat++) {
+    const p = s.players[seat] || {};
+    const melds = p.melds || [];
+    const sig = melds.map((m) => `${m.kind}:${m.tile}`).join('|');
+    const old = UI.actionMelds[seat];
+    if (sig !== old) {
+      if (old === null || old === undefined) {
+        UI.actionMelds[seat] = sig;
+      } else {
+        const oldParts = old ? old.split('|') : [];
+        let changed = null;
+        for (let i = 0; i < melds.length; i++) {
+          if (`${melds[i].kind}:${melds[i].tile}` !== oldParts[i]) { changed = melds[i]; break; }
+        }
+        if (changed) queueCenterCall(meldCallLabel(changed.kind), changed.tile);
+        UI.actionMelds[seat] = sig;
+      }
+    }
+
+    const pizi = p.piziTiles || [];
+    const now = pizi.length;
+    const oldPizi = UI.actionPizi[seat];
+    if (oldPizi === null || oldPizi === undefined) {
+      UI.actionPizi[seat] = now;
+    } else if (now > oldPizi) {
+      const added = pizi.slice(oldPizi);
+      const raw = added[added.length - 1];
+      const sameBefore = pizi.slice(0, oldPizi).filter((t) => t === raw).length;
+      const sameNow = pizi.filter((t) => t === raw).length;
+      /* 中/发/白某一色摆到第 4 张：这一下就是暗杠；否则是普通补油。 */
+      queueCenterCall(sameNow === 4 && sameBefore < 4 ? '暗杠' : '补', raw);
+      UI.actionPizi[seat] = now;
+    }
+  }
+
+  if (s.phase === 'finished') {
+    const key = `${round}|${s.drawnGame ? 'draw' : (s.result && s.result.winner) || ''}`;
+    if (key !== UI.actionResult) {
+      UI.actionResult = key;
+      if (s.drawnGame) queueCenterCall('流局');
+      else if (s.result && s.result.winner !== undefined) queueCenterCall('胡');
+    }
+  }
 }
 
 function announceState(s) {
@@ -1158,6 +1546,7 @@ function announceState(s) {
     UI.voiceRound = round;
     UI.voiceKey = '';
     UI.voiceMelds = [null, null, null, null];
+    UI.voicePizi = [null, null, null, null];
     UI.voiceResult = '';
   }
 
@@ -1168,7 +1557,7 @@ function announceState(s) {
     const key = `${round}|${ld.seat}|${ld.tile}|${(p && p.discardCount) || 0}|${ld.seq || 0}`;
     if (key !== UI.voiceKey) {
       UI.voiceKey = key;
-      speak(`${voiceName(s, ld.seat)}，打${label(ld.tile)}`);
+      speak(label(ld.tile));
     }
   }
 
@@ -1192,10 +1581,20 @@ function announceState(s) {
             : changed.kind === 'gangConcealed' ? '暗杠'
               : changed.kind === 'gangAdded' ? '回头笑' : '杠';
         const t = label(changed.tile);
-        speak(kind === '碰' ? `${voiceName(s, seat)}，碰${t}` : `${voiceName(s, seat)}，${kind}${t}`);
+        speak(kind === '碰' ? `碰${t}` : `${kind}${t}`);
       }
       UI.voiceMelds[seat] = sig;
     }
+  }
+
+  /* 补油：露出的油数量增加时播报（初始进桌首帧只记录不播） */
+  for (let seat = 0; seat < 4; seat++) {
+    const p = s.players[seat];
+    const now = p && Array.isArray(p.piziTiles) ? p.piziTiles.length : 0;
+    const old = UI.voicePizi[seat];
+    if (old === null || old === undefined) { UI.voicePizi[seat] = now; continue; }
+    if (now > old) speak('补油');
+    UI.voicePizi[seat] = now;
   }
 
   /* 胡 / 流局：只在进入 finished 的那一次播 */
@@ -1207,7 +1606,7 @@ function announceState(s) {
       else if (s.result && s.result.winner !== undefined) {
         const winner = s.result.winner;
         const fans = (s.result.fans || []).map((f) => (typeof f === 'string' ? f : f.name)).filter(Boolean).join('，');
-        speak(`${voiceName(s, winner)}，自摸${fans ? '，' + fans : ''}`);
+        speak(`自摸${fans ? '，' + fans : ''}`);
       }
     }
   }
@@ -1283,7 +1682,8 @@ function bindAll() {
   if (p2p) p2p.addEventListener('click', () => {
     sfx('tap');
     const g = window.JianliGame;
-    if (g && typeof g.openP2P === 'function') { closeOverlays(); g.openP2P(); }
+    if (g && typeof g.openNetwork === 'function') { closeOverlays(); g.openNetwork('join'); }
+    else if (g && typeof g.openP2P === 'function') { closeOverlays(); g.openP2P('join'); }
   });
   const rules = $('home-rules');
   if (rules) rules.addEventListener('click', () => { sfx('tap'); const m = $('rules-modal'); if (m) m.classList.add('show'); });
@@ -1301,6 +1701,11 @@ function bindAll() {
   const hv = $('home-voice'); if (hv) hv.addEventListener('click', () => setVoice(!voiceOn()));
   const tv = $('btn-voice'); if (tv) tv.addEventListener('click', () => setVoice(!voiceOn()));
   const hf = $('home-full'); if (hf) hf.addEventListener('click', toggleFullscreen);
+  const nt = $('home-net-test');
+  if (nt) nt.addEventListener('click', () => {
+    sfx('tap');
+    if (window.JianliGame && typeof window.JianliGame.testServerLatency === 'function') window.JianliGame.testServerLatency();
+  });
   const tf = $('btn-full'); if (tf) tf.addEventListener('click', toggleFullscreen);
   const tb = $('btn-board'); if (tb) tb.addEventListener('click', () => { sfx('tap'); toggleBoard(); });
   const ex = $('btn-exit'); if (ex) ex.addEventListener('click', () => {
@@ -1323,7 +1728,7 @@ function bindAll() {
     if (!a) return;
     sfx('tap');
     if (a.type === 'gangPick') { showGangPick(a.gangs); return; }
-    submitAction({ type: a.type });
+    submitAction({ type: a.type, tile: a.tile });
   });
 
   const zone = $('declare-zone');
@@ -1361,6 +1766,10 @@ function onTileClick(raw, i) {
     return;
   }
   const p = s.players[UI.me];
+  if (p && p.hand.some(isPizi)) {
+    showToast('手里有油，先点「补」补完才能出牌', '', 1500);
+    return;
+  }
   const allowed = allowedSet();
   if (!allowed.has(raw)) {
     if (p.declared) showToast('报听后只能打刚摸到的这张', '', 1500);
@@ -1394,6 +1803,25 @@ function submitAction(a) {
   UI.sel = null;
   const zone = $('declare-zone'); if (zone) zone.innerHTML = '';
   if (G.onAct) G.onAct(a);
+}
+
+/* 右下角网络延迟：低于 100ms 绿色，超过 100ms 红色 */
+export function setNetLatency(ms, kind = '') {
+  const el = $('net-latency');
+  if (!el) return;
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n < 0) { el.classList.remove('is-on', 'is-good', 'is-bad'); el.textContent = ''; return; }
+  if (kind) el.dataset.kind = kind;
+  const shown = Math.round(n);
+  el.textContent = `${shown}ms`;
+  el.classList.toggle('is-good', shown <= 100);
+  el.classList.toggle('is-bad', shown > 100);
+  el.classList.add('is-on');
+}
+
+export function clearNetLatency() {
+  const el = $('net-latency');
+  if (el) { el.classList.remove('is-on', 'is-good', 'is-bad'); el.textContent = ''; delete el.dataset.kind; }
 }
 
 /* ---------------- 启动 ---------------- */

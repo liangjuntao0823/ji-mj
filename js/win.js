@@ -1,5 +1,5 @@
 /* 胡牌判定 —— 与 iOS 版 WinChecker 一致
- * 红中是皮子：手里带红中一律不算胡。
+ * 红中是油：手里带红中一律不算胡。
  * 标准型：4 组面子（顺子/刻子）+ 1 对将；七对只在无副露时成立。
  */
 import { RED_RAW, ALL_KINDS } from './tiles.js';
@@ -71,13 +71,47 @@ function canFormSets(counts, sets) {
   return false;
 }
 
-/** 听牌提示：返回所有能和的牌 raw（只用于 UI，不参与裁决） */
-export function waitingTiles(hand, meldCount = 0, allowSevenPairs = true) {
-  if (hand.some((t) => t === RED_RAW)) return [];
+/** 听牌提示：返回所有能和的牌 raw（只用于 UI，不参与裁决）
+ *  gangCount = 已副露的杠数；pengCount = 已副露的碰数（清八对不允许带碰）
+ *  清八对 / 豪华清八对：至少两个杠（含手里没杠出来的四张），余牌全部成对。
+ */
+export function waitingTiles(hand, meldCount = 0, allowSevenPairs = true, gangCount = 0, pengCount = 0) {
+  if (hand.some((t) => t >= 27)) return [];
   const out = [];
   for (const kind of ALL_KINDS) {
-    if (kind === RED_RAW) continue;
-    if (isWinning([...hand, kind], meldCount, allowSevenPairs)) out.push(kind);
+    if (kind >= 27) continue;
+    if (isWinning([...hand, kind], meldCount, allowSevenPairs)) { out.push(kind); continue; }
+    if (pengCount === 0 && isBaDuiShape([...hand, kind], gangCount)) out.push(kind);
   }
-  return out;
+  return unique(out);
+}
+
+function unique(list) {
+  return [...new Set(list)].sort((a, b) => a - b);
+}
+
+/**
+ * 清八对 / 豪华清八对的和牌形状：
+ * 至少两个杠（副露的杠 + 手里攥着的四张同牌），余下手牌全部成对。
+ * hand 只算手牌；melds 里的牌不传进来，只传杠/碰数量。
+ */
+export function isBaDuiShape(hand, gangCount = 0) {
+  if (!Array.isArray(hand) || hand.some((t) => t >= 27)) return false;
+  const c = new Array(27).fill(0);
+  for (const t of hand) c[t]++;
+  const quads = [];
+  for (let i = 0; i < 27; i++) if (c[i] >= 4) quads.push(i);
+  for (const t of quads) c[t] -= 4;
+  const totalGangs = gangCount + quads.length;
+  /* 清八对：2 个杠 = 4 对，手里 4 对，合计 8 对（16 张）；
+     豪华清八对：3 个杠 = 6 对，手里 2 对（18 张）；或 2 个杠 + 手里 4 对里带 4 张同牌（按 3 个杠算）。
+     不能再用“余牌至少 2 对”放宽，否则 2 杠 + 3 对会被误算成清八对。 */
+  if (totalGangs !== 2 && totalGangs !== 3) return false;
+  const needRest = totalGangs === 2 ? 8 : 4;
+  let rest = 0;
+  for (let i = 0; i < 27; i++) {
+    if (c[i] % 2 !== 0) return false;
+    rest += c[i];
+  }
+  return rest === needRest;
 }

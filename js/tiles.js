@@ -1,19 +1,26 @@
 /* 监利红中麻将 —— 牌定义 / 随机数 / 牌墙
- * 牌编码与 iOS 版 JianliCore 完全一致：
- * 0-8 万1-9，9-17 筒1-9，18-26 条1-9，27 红中。共 112 张。
+ * 牌编码：0-8 万1-9，9-17 筒1-9，18-26 条1-9，27 红中，28 发财，29 白板。
+ * 默认 112 张（红中 4 张）；开启「中发白」后 120 张（红中/发财/白板各 4 张）。
  */
 
 export const RED_RAW = 27;
-export const ALL_KINDS = Array.from({ length: 28 }, (_, i) => i);
+export const FA_RAW = 28;
+export const BAI_RAW = 29;
+export const PIZI_RAWS = [RED_RAW, FA_RAW, BAI_RAW];
+export const ALL_KINDS = Array.from({ length: 30 }, (_, i) => i);
 export const NUMERALS = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
 export const SUIT_SYMBOL = ['万', '筒', '条'];
 
 export const isRed = (raw) => raw === RED_RAW;
-export const suitOf = (raw) => (raw === RED_RAW ? 3 : Math.floor(raw / 9));
-export const rankOf = (raw) => (raw === RED_RAW ? 0 : (raw % 9) + 1);
+export const isPizi = (raw) => raw === RED_RAW || raw === FA_RAW || raw === BAI_RAW;
+export const isBonus = isPizi;
+export const suitOf = (raw) => (raw >= 27 ? 3 : Math.floor(raw / 9));
+export const rankOf = (raw) => (raw >= 27 ? 0 : (raw % 9) + 1);
 
 export function label(raw) {
   if (raw === RED_RAW) return '红中';
+  if (raw === FA_RAW) return '发财';
+  if (raw === BAI_RAW) return '白板';
   return NUMERALS[rankOf(raw) - 1] + SUIT_SYMBOL[suitOf(raw)];
 }
 
@@ -31,14 +38,19 @@ export function tileSrc(raw) {
 
 export function tileImage(raw) {
   if (raw === RED_RAW) return 'Chun';
+  if (raw === FA_RAW) return 'Fa';
+  if (raw === BAI_RAW) return 'Bai';
   const suit = ['Man', 'Pin', 'Sou'][suitOf(raw)];
   return suit + rankOf(raw);
 }
 
-/** 112 张全牌堆 */
-export function fullSet() {
+/** 全牌堆：默认 112 张；withDragons=true 时加入发财、白板，共 120 张 */
+export function fullSet(withDragons = false) {
   const out = [];
-  for (const k of ALL_KINDS) for (let i = 0; i < 4; i++) out.push(k);
+  for (const k of ALL_KINDS) {
+    if (!withDragons && (k === FA_RAW || k === BAI_RAW)) continue;
+    for (let i = 0; i < 4; i++) out.push(k);
+  }
   return out;
 }
 
@@ -54,9 +66,9 @@ export function makeRng(seed) {
   };
 }
 
-export function shuffledTiles(seed) {
+export function shuffledTiles(seed, withDragons = false) {
   const rng = makeRng(seed >>> 0);
-  const arr = fullSet();
+  const arr = fullSet(withDragons);
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
@@ -64,15 +76,15 @@ export function shuffledTiles(seed) {
   return arr;
 }
 
-/** 牌墙：head 为正常摸牌端，tail 为杠/皮子补牌端 */
+/** 牌墙：head 为正常摸牌端，tail 为杠/油补牌端 */
 export class Wall {
-  constructor(seedOrTiles, head, tail) {
+  constructor(seedOrTiles, head, tail, withDragons = false) {
     if (Array.isArray(seedOrTiles)) {
       this.tiles = seedOrTiles.slice();
       this.head = head || 0;
       this.tail = tail === undefined ? this.tiles.length - 1 : tail;
     } else {
-      this.tiles = shuffledTiles(seedOrTiles >>> 0);
+      this.tiles = shuffledTiles(seedOrTiles >>> 0, withDragons);
       this.head = 0;
       this.tail = this.tiles.length - 1;
     }

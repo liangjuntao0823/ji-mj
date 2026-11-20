@@ -2,9 +2,9 @@
  * 房主权威的纯逻辑引擎：输入动作，输出事件；全程只有发牌用随机数。
  */
 import {
-  RED_RAW, ALL_KINDS, Wall, sortHand, nextSeat, othersOf, seatDistance, SEAT_LABEL,
+  RED_RAW, FA_RAW, BAI_RAW, PIZI_RAWS, isPizi, ALL_KINDS, Wall, sortHand, nextSeat, othersOf, seatDistance, SEAT_LABEL,
 } from './tiles.js';
-import { isWinning, waitingTiles } from './win.js';
+import { isWinning, waitingTiles, isBaDuiShape } from './win.js';
 
 export const DEFAULT_RULE = {
   name: '监利红中',
@@ -21,6 +21,9 @@ export const DEFAULT_RULE = {
   playSeconds: 30,
   claimSeconds: 30,
   rounds: 8,
+  withDragons: false,   // 中发白：发财、白板与红中同为油
+  addonEnabled: false,  // 自由加增：每小局开局前每人选 0~3 份
+  baseShare: 1,         // 围增：所有玩家基础份子从 1/2/3 起算
 };
 
 export class EngineError extends Error {}
@@ -31,6 +34,18 @@ function countsOf(tiles) {
   const c = new Array(28).fill(0);
   for (const t of tiles) if (t >= 0 && t < 28) c[t]++;
   return c;
+}
+
+const PIZI_KINDS = [RED_RAW, FA_RAW, BAI_RAW];
+const countRaw = (tiles, raw) => (tiles || []).filter((t) => t === raw).length;
+const piziCounts = (tiles) => PIZI_KINDS.map((raw) => countRaw(tiles, raw));
+
+/** 中发白各 2 / 各 3：只在局末按当前手牌数量判定，不看历史补出的油。 */
+function dragonSetOf(hand) {
+  const c = piziCounts(hand);
+  if (c.every((n) => n === 2)) return { kind: 'added', label: '中发白各2', counts: c };
+  if (c.every((n) => n === 3)) return { kind: 'concealed', label: '中发白各3', counts: c };
+  return null;
 }
 
 /** 全部成对（七对 / 清八对类） */
@@ -58,25 +73,20 @@ function isAllTriplets(hand) {
 
 const SUIT_OF = (t) => Math.floor(t / 9);
 
-/** 清八对 / 豪华清八对的和牌形状：两个以上杠 + 手牌全部成对 */
-function isBaDuiShape(hand, melds) {
+/** 清八对/豪华清八对：手里/副露里至少两个杠，并且没有碰 */
+function baDuiOK(hand, melds) {
   const gangs = melds.filter((m) => m.kind === 'gangExposed' || m.kind === 'gangConcealed' || m.kind === 'gangAdded');
-  const quads = [];
-  for (const t of new Set(hand)) if (hand.filter((x) => x === t).length === 4) quads.push(t);
-  const rest = hand.slice();
-  for (const t of quads) for (let i = 0; i < 4; i++) rest.splice(rest.indexOf(t), 1);
-  if (gangs.length + quads.length < 2) return false;
-  if (rest.length < 4 || rest.length % 2 !== 0) return false;
-  return allPairs(rest);
+  if (melds.some((m) => m.kind === 'peng')) return false;
+  return isBaDuiShape(hand, gangs.length);
 }
 
 /**
  * 判番：返回 { fans:[{name,mult}], mult }
- * 倍数一律相加：牌型取最高的一个，其余番（清一色、明/暗活带、天地胡）叠加相加，
+ * 倍数一律相加：牌型取最高的一个，其余番（清一色、明/暗活带、天地胡、报听）叠加相加，
  * 清摸球 / 杠上开花 / 海底捞月 各 +0.5。
- * 明活带、暗活带只与清一色叠加（不与牌型本身相加，也不与特殊牌型叠）。
+ * 明活带、暗活带同时成立时按 3 + 5 = 8 计；暗活带可与天地胡、报听叠加，明活带因必有碰不叠加。
  */
-export function judgeFans({ hand, melds, lastDrawn, wallRemaining, afterGang, drawCount, dealer, seat, declared }) {
+export function judgeFans({ hand, melds, lastDrawn, wallRemaining, afterGang, drawCount, dealer, seat, declared, seaBottom = false }) {
   const fans = [];
   const gangs = melds.filter((m) => m.kind === 'gangExposed' || m.kind === 'gangConcealed' || m.kind === 'gangAdded');
   const pengLike = melds.filter((m) => m.kind === 'peng');  /* 明杠/暗杠/回头笑都不算碰 */
@@ -89,15 +99,18 @@ export function judgeFans({ hand, melds, lastDrawn, wallRemaining, afterGang, dr
   const pairHandRaw = hand.length % 2 === 0 && allPairs(hand);
   const totalGangs = gangs.length + handQuads.length;
   const allTiles = hand.concat(melds.map((m) => m.tile));
-  const pure = allTiles.length > 0 && allTiles.every((t) => t !== RED_RAW && SUIT_OF(t) === SUIT_OF(allTiles[0]));
+  const pure = allTiles.length > 0 && allTiles.every((t) => !isPizi(t) && SUIT_OF(t) === SUIT_OF(allTiles[0]));
 
   let base = 1;
   let baseName = '屁胡';
+  let baseFans = [];
   if (gangs.length === 4 && hand.length === 2 && hand[0] === hand[1]) {
     base = 10; baseName = '十八罗汉';
-  } else if (totalGangs >= 2 && pairHand && restHand.length >= 4) {
-    if (totalGangs >= 3) { base = 10; baseName = '豪华清八对'; }
-    else { base = 8; baseName = '清八对'; }
+  } else if ((totalGangs === 2 && restHand.length === 8) || (totalGangs === 3 && restHand.length === 4)) {
+    if (pairHand) {
+      if (totalGangs === 3) { base = 10; baseName = '豪华清八对'; }
+      else { base = 8; baseName = '清八对'; }
+    }
   } else if (melds.length === 0 && hand.length === 14 && pairHandRaw) {
     if (hasQuad(hand)) { base = 8; baseName = '豪华七对'; }
     else { base = 4; baseName = '七对'; }
@@ -109,17 +122,27 @@ export function judgeFans({ hand, melds, lastDrawn, wallRemaining, afterGang, dr
     base = 3; baseName = '对子胡';
   }
 
-  /* 明活带 / 暗活带：只与清一色叠加 —— 成立时取代牌型本身，不再与对子胡等相加 */
+  /* 明活带 / 暗活带：成立时取代牌型本身，不再与对子胡等相加。
+     两种形态同时成立时按用户口径相加：3 + 5 = 8。
+     暗活带可以和天地胡/报听叠加；明活带必然有碰，不能和天地胡/报听叠加。 */
   const SPECIAL = ['裸奔', '十八罗汉', '清八对', '豪华清八对', '七对', '豪华七对'];
   const pengTiles = pengLike.map((m) => m.tile);
   if (!SPECIAL.includes(baseName)) {
-    if (handQuads.length > 0 && isWinning(hand, melds.length, true)) { base = 5; baseName = '暗活带'; }
-    else if (pengTiles.some((t) => hand.includes(t))) { base = 3; baseName = '明活带'; }
+    const darkLive = handQuads.length > 0 && isWinning(hand, melds.length, true);
+    const lightLive = pengTiles.some((t) => hand.includes(t));
+    if (darkLive && lightLive) {
+      base = 8; baseName = '明暗活带';
+      baseFans = [{ name: '明活带', mult: 3 }, { name: '暗活带', mult: 5 }];
+    } else if (darkLive) {
+      base = 5; baseName = '暗活带';
+    } else if (lightLive) {
+      base = 3; baseName = '明活带';
+    }
   }
 
   /* 独立叠加的番：天地胡、清一色、报听 */
-  const isTian = drawCount === 1 && seat === dealer;
-  const isDi = drawCount !== null && drawCount !== undefined && drawCount > 1 && drawCount <= 4 && seat !== dealer;
+  const isTian = drawCount === 1 && seat === dealer && melds.length === 0;
+  const isDi = drawCount === 1 && seat !== dealer && melds.length === 0;
   const extra = [];
   if (isTian) extra.push({ name: '天胡', mult: 5 });
   else if (isDi) extra.push({ name: '地胡', mult: 5 });
@@ -129,33 +152,40 @@ export function judgeFans({ hand, melds, lastDrawn, wallRemaining, afterGang, dr
   /* 屁胡的 1 倍只在"一个番都没有"时算。只要有清一色/天地胡/报听，这手牌就不是屁胡了。 */
   const isPihu = baseName === '屁胡';
   const baseValue = isPihu && extra.length > 0 ? 0 : base;
-  if (!(isPihu && baseValue === 0)) fans.push({ name: baseName, mult: base });
+  if (!(isPihu && baseValue === 0)) {
+    if (baseFans.length) fans.push(...baseFans);
+    else fans.push({ name: baseName, mult: base });
+  }
   for (const e of extra) fans.push(e);
 
   let total = baseValue;
   for (const e of extra) total += e.mult;
 
-  /* 清摸球：一个都没碰过自摸。七对、豪华七对、清八对、豪华清八对、十八罗汉、天地胡本身
-     就是没碰过就能成的牌型，不再额外加这 0.5。 */
+  /* 清摸球：胡牌时露牌没有碰；明杠/暗杠/回头笑都不算碰，或全程无碰无杠直接胡。
+     七对、豪华七对、清八对、豪华清八对、十八罗汉、天地胡本身不再额外加这 0.5。 */
   const NO_QING = ['七对', '豪华七对', '清八对', '豪华清八对', '十八罗汉'];
   if (pengLike.length === 0 && !NO_QING.includes(baseName) && !declared && !isTian && !isDi) {
     total += 0.5; fans.push({ name: '清摸球', mult: 0.5, add: true });
   }
   if (afterGang) { total += 0.5; fans.push({ name: '杠上开花', mult: 0.5, add: true }); }
-  if (wallRemaining === 0) { total += 0.5; fans.push({ name: '海底捞月', mult: 0.5, add: true }); }
+  if (wallRemaining === 0 || seaBottom) { total += 0.5; fans.push({ name: '海底捞月', mult: 0.5, add: true }); }
 
-  return { fans, mult: total, base: baseValue, baseName };
+  /* 对外组合名：把实际番型按出现顺序拼起来，去掉“屁胡”；
+     只有纯屁胡（没有任何加番）时才保留“屁胡”。 */
+  const comboNames = fans.map((f) => f.name).filter((n) => n !== '屁胡');
+  const fanName = comboNames.length ? comboNames.join('.') : '屁胡';
+  return { fans, mult: total, base: baseValue, baseName, fanName };
 }
 
-export const PHASE = { IDLE: 'idle', DISCARD: 'awaitingDiscard', CLAIM: 'awaitingClaim', FINISHED: 'finished' };
+export const PHASE = { IDLE: 'idle', ADDON: 'awaitingAddon', DISCARD: 'awaitingDiscard', CLAIM: 'awaitingClaim', FINALDRAW: 'finalDraw', FINISHED: 'finished' };
 
 function newPlayer(seat, name, isBot) {
-  return { seat, name, hand: [], melds: [], river: [], redsPlayed: 0, score: 0, isBot: !!isBot, connected: true, singleLocked: null, declared: false, declareWaits: null, declareIntent: false, discardCount: 0 };
+  return { seat, name, hand: [], melds: [], river: [], redsPlayed: 0, piziTiles: [], score: 0, isBot: !!isBot, connected: true, singleLocked: null, declared: false, declareWaits: null, declareIntent: false, discardCount: 0, drawCount: 0, noAddedGang: [] };
 }
 
 export class Engine {
   constructor({ seed = Date.now(), names = [], dealer = 0, roundIndex = 1, botSeats = [], rule = DEFAULT_RULE, state = null } = {}) {
-    this.rule = rule;
+    this.rule = { ...DEFAULT_RULE, ...(rule || {}) };
     this.events = [];
     if (state) {
       this.state = state;
@@ -171,7 +201,7 @@ export class Engine {
       dealer,
       current: dealer,
       phase: PHASE.IDLE,
-      wall: new Wall(seed >>> 0),
+      wall: new Wall(seed >>> 0, 0, undefined, this.rule.withDragons),
       seed: seed >>> 0,
       roundIndex,
       pending: null,
@@ -190,6 +220,21 @@ export class Engine {
       lastDiscard: null,
       /* 杠分/回头笑分：本局先记账，局末统一结算 */
       gangLedger: [],
+      /* 中发白局末组合（各2/各3）与四张油暗杠：局末统一结算 */
+      dragonSets: [],
+      dragonSetsSettled: false,
+      /** 满天星标记，正常胡牌不会用到，结算面板用于展示 4/4/4 油 */
+      manTianXing: false,
+      /* 自由加增：本局每人选的加增份数（0~3），开局前四家选完才发牌 */
+      addons: [0, 0, 0, 0],
+      addonChosen: [true, true, true, true],
+      addonEnabled: !!this.rule.addonEnabled,
+      withDragons: !!this.rule.withDragons,
+      baseShare: Math.max(1, Math.min(3, Number(this.rule.baseShare) || 1)),
+      /* 海底捞月：牌墙只剩最后 4 张后，四家各摸一张、只摸不打 */
+      finalMode: false,
+      finalQueue: [],
+      finalIndex: 0,
     };
   }
 
@@ -200,10 +245,48 @@ export class Engine {
 
   startHand() {
     const { state, rule } = this;
+    state.phase = PHASE.IDLE;
+    state.finalMode = false;
+    state.finalQueue = [];
+    state.finalIndex = 0;
+    state.gangLedger = [];
+    state.dragonSets = [];
+    state.dragonSetsSettled = false;
+    state.manTianXing = false;
+    state.lastDiscard = null;
+    state.addons = [0, 0, 0, 0];
+    state.addonChosen = state.players.map((p) => !!p.isBot);
+    if (rule.addonEnabled) {
+      state.phase = PHASE.ADDON;
+      if (!state.addonChosen.every(Boolean)) {
+        this.events = [{ type: 'addonWindow', roundIndex: state.roundIndex }];
+        return this.events;
+      }
+      return this.#dealHand();
+    }
+    return this.#dealHand();
+  }
+
+  /** 自由加增：每个小局开始前，四家各选一次 0~3 份；四家选完才发牌 */
+  #chooseAddon(value, seat) {
+    const s = this.state;
+    if (!this.rule.addonEnabled || s.phase !== PHASE.ADDON) throw new EngineError('现在不能选加增');
+    if (seat < 0 || seat > 3) throw new EngineError('座位不对');
+    if (s.addonChosen[seat]) throw new EngineError('已经选过了');
+    s.addons[seat] = Math.max(0, Math.min(3, Number(value) || 0));
+    s.addonChosen[seat] = true;
+    const out = [{ type: 'addonChosen', seat, value: s.addons[seat] }];
+    if (s.addonChosen.every(Boolean)) out.push(...this.#dealHand());
+    this.events.push(...out);
+    return out;
+  }
+
+  #dealHand() {
+    const { state } = this;
     const wallSeed = (state.seed ^ Math.imul(state.roundIndex, 0x9e3779b9)) >>> 0;
-    state.wall = new Wall(wallSeed);
+    state.wall = new Wall(wallSeed, 0, undefined, this.rule.withDragons);
     for (let i = 0; i < 4; i++) {
-      Object.assign(state.players[i], { hand: [], melds: [], river: [], redsPlayed: 0, singleLocked: null, declared: false, declareWaits: null, declareIntent: false, discardCount: 0 });
+      Object.assign(state.players[i], { hand: [], melds: [], river: [], redsPlayed: 0, piziTiles: [], singleLocked: null, declared: false, declareWaits: null, declareIntent: false, discardCount: 0, drawCount: 0, noAddedGang: [] });
     }
     state.pending = null;
     state.lastDrawn = null;
@@ -215,6 +298,14 @@ export class Engine {
     state.mustDiscard = null;
     state.drawCount = 0;
     state.lastDrawnAfterGang = false;
+    state.finalMode = false;
+    state.finalQueue = [];
+    state.finalIndex = 0;
+    state.gangLedger = [];
+    state.dragonSets = [];
+    state.dragonSetsSettled = false;
+    state.manTianXing = false;
+    state.lastDiscard = null;
 
     // 发 13 轮，庄家起手各 1 张
     for (let r = 0; r < 13; r++) {
@@ -226,22 +317,28 @@ export class Engine {
     }
 
     const out = [];
-    // 起手带的红中同样必打：摆台面，从牌墙尾换真牌
-    for (let i = 0; i < 4; i++) {
-      let guard = 0;
-      while (state.players[i].hand.includes(RED_RAW) && guard < 8) {
-        guard++;
-        state.players[i].hand.splice(state.players[i].hand.indexOf(RED_RAW), 1);
-        state.players[i].redsPlayed++;
-        out.push({ type: 'redDiscarded', seat: i, count: state.players[i].redsPlayed });
-        const re = state.wall.drawBack();
-        if (re !== null) state.players[i].hand.push(re);
-      }
-      state.players[i].hand = sortHand(state.players[i].hand);
+    /* 起手的油不再自动摆出、自动尾补：先留在手里，轮到谁出牌时点「补」再统一补油。 */
+    for (let i = 0; i < 4; i++) state.players[i].hand = sortHand(state.players[i].hand);
+
+    /* 庄家起手第 14 张：正常从牌墙头摸，摸到油也先留在手里。 */
+    const dealerDraw = state.wall.drawFront();
+    if (dealerDraw !== null) {
+      state.players[state.dealer].hand.push(dealerDraw);
+      state.players[state.dealer].hand = sortHand(state.players[state.dealer].hand);
+      state.players[state.dealer].drawCount = 1;
+      state.drawCount = 1;
+      state.lastDrawn = dealerDraw;
+      state.lastDrawnFromTail = false;
     }
+    state.current = state.dealer;
+    state.phase = PHASE.DISCARD;
+    state.pending = null;
+    state.mustDiscard = null;
 
     out.unshift({ type: 'handStarted', dealer: state.dealer, seed: state.seed, roundIndex: state.roundIndex });
-    out.push(...this.drawTurn(state.dealer));
+    if (dealerDraw !== null) {
+      out.push({ type: 'turn', seat: state.dealer, drawn: dealerDraw }, { type: 'wallRemaining', n: state.wall.remaining });
+    }
     this.events = out;
     return out;
   }
@@ -257,6 +354,7 @@ export class Engine {
   /* ---------------- 动作入口 ---------------- */
 
   apply(action, seat) {
+    if (action && action.type === 'addon') return this.#chooseAddon(action.value, seat);
     if (this.state.phase === PHASE.FINISHED) throw new EngineError('本局已结束');
     let out;
     switch (action.type) {
@@ -264,10 +362,13 @@ export class Engine {
       case 'peng': out = this.#respond('peng', seat); break;
       case 'gangExposed': out = this.#respond('gang', seat); break;
       case 'pass': out = this.#respond('pass', seat); break;
+      case 'bu': out = this.#bu(seat); break;
       case 'gangConcealed': out = this.#concealedGang(action.tile, seat); break;
       case 'gangAdded': out = this.#addedGang(action.tile, seat); break;
       case 'declare': out = this.#declare(seat); break;
       case 'hu': out = this.#hu(seat); break;
+      case 'finalDraw': out = this.#finalDraw(seat); break;
+      case 'finalPass': out = this.#finalPass(seat); break;
       default: throw new EngineError('未知动作 ' + action.type);
     }
     this.events.push(...out);
@@ -280,6 +381,7 @@ export class Engine {
     const s = this.state;
     if (s.phase !== PHASE.DISCARD || s.current !== seat) throw new EngineError('没轮到你');
     const p = s.players[seat];
+    if (p.hand.some(isPizi)) throw new EngineError('手里还有油，先点「补」补完才能出牌');
     const idx = p.hand.indexOf(raw);
     if (idx < 0) throw new EngineError('手里没有这张牌');
     /* 已经亮牌后不能换牌：摸进来的那张必须打出去，除非它能胡。
@@ -292,53 +394,50 @@ export class Engine {
     }
     if (p.declareIntent) {
       const rest = p.hand.slice(); rest.splice(idx, 1);
-      if (!waitingTiles(rest, 0, this.rule.allowSevenPairs).length) {
+      if (!waitingTiles(rest, 0, this.rule.allowSevenPairs, this.#gangCount(p), p.melds.filter((m) => m.kind === 'peng').length).length) {
         throw new EngineError('这张打出去不听牌，报听不成立，请换一张或者取消报听');
+      }
+    }
+    /* 已经有碰、手里留着第 4 张，却选择继续打别的牌：这张牌以后永久放弃回头笑。
+       注意：如果打出去的正好是这张第 4 张，牌已经离开手牌，不需要再标记。 */
+    p.noAddedGang = p.noAddedGang || [];
+    for (const m of p.melds) {
+      if (m.kind === 'peng' && m.tile !== raw && p.hand.includes(m.tile) && !p.noAddedGang.includes(m.tile)) {
+        p.noAddedGang.push(m.tile);
       }
     }
     p.hand.splice(idx, 1);
     s.lastDrawn = null;
     if (s.mustDiscard === seat) s.mustDiscard = null;
-    if (raw !== RED_RAW) p.river.push(raw);
+    if (!isPizi(raw)) p.river.push(raw);
     p.discardCount += 1;
     /* 每次出牌都更新 lastDiscard（红中也算），联机各端据此播报，不只房主 */
     s.lastDiscard = { seat, tile: raw, seq: p.discardCount };
     if (p.declareIntent) {
-      const w = waitingTiles(p.hand, 0, this.rule.allowSevenPairs);
+      const w = waitingTiles(p.hand, 0, this.rule.allowSevenPairs, this.#gangCount(p), p.melds.filter((m) => m.kind === 'peng').length);
       p.declared = true; p.declareWaits = w.slice(); p.declareIntent = false;
     }
     /* 四副露后手牌只剩一张：这张从此明牌并锁定 */
-    if (p.melds.length === 4 && p.hand.length === 1 && p.singleLocked === null) p.singleLocked = p.hand[0];
-    p.discardCount += 1;
+    if (p.melds.length === 4 && p.hand.length === 1 && !p.hand.some(isPizi) && p.singleLocked === null) p.singleLocked = p.hand[0];
 
     let out = [{ type: 'discarded', seat, tile: raw }, { type: 'wallRemaining', n: s.wall.remaining }];
 
-    // 皮子：红中必打，摆台面、尾补一张、结算翻倍
-    if (raw === RED_RAW) {
-      p.redsPlayed++;
-      out.push({ type: 'redDiscarded', seat, count: p.redsPlayed });
-      if (p.redsPlayed >= 4) out.push(...this.#pay(this.rule.redGangBase, seat, othersOf(seat), 'redGang'));
-      const re = s.wall.drawBack();
-      if (re !== null) {
-        p.hand.push(re);
-        p.hand = sortHand(p.hand);
-        s.lastDrawn = re;
-        s.current = seat;
-        s.phase = PHASE.DISCARD;
-        out.push({ type: 'turn', seat, drawn: re }, { type: 'wallRemaining', n: s.wall.remaining });
-      } else {
-        out.push(this.#finishDrawn());
-      }
-      return out;
-    }
-
-    // 声明窗口：只能碰、杠，不能吃、不能点炮胡
+    // 声明窗口：只能碰、杠，不能吃、不能点炮胡。报听后不可碰，只允许不散听且听口不变的杠。
     const options = {};
     for (let o = 0; o < 4; o++) {
       if (o === seat) continue;
-      const same = s.players[o].hand.filter((t) => t === raw).length;
-      if (same >= 3) options[o] = ['pass', 'gang'];
-      else if (same === 2) options[o] = ['pass', 'peng'];
+      const op = s.players[o];
+      const same = op.hand.filter((t) => t === raw).length;
+      const opts = [];
+      if (!op.declared) {
+        if (same >= 2) opts.push('pass', 'peng');
+        if (same >= 3) opts.push('gang');
+      } else if (same >= 3) {
+        const nh = op.hand.slice();
+        for (let i = 0; i < 3; i++) nh.splice(nh.indexOf(raw), 1);
+        if (this.#canGangAfterDeclare(op, nh, op.melds.length + 1)) opts.push('pass', 'gang');
+      }
+      if (opts.length > 1) options[o] = opts;
     }
     if (Object.keys(options).length === 0) {
       out.push(...this.drawTurn(nextSeat(seat)));
@@ -371,6 +470,7 @@ export class Engine {
     const pengs = Object.keys(pending.answers).map(Number).filter((k) => pending.answers[k] === 'peng').sort((a, b) => a - b);
     s.pending = null;
 
+    s.finalStart = nextSeat(pending.discarder);
     const g = nearest(gangs);
     if (g !== null) return this.#claimGang(g, pending);
     const pg = nearest(pengs);
@@ -381,8 +481,14 @@ export class Engine {
   #claimPeng(seat, pending) {
     const s = this.state;
     const p = s.players[seat];
+    if (p.declared) throw new EngineError('报听后不能碰');
     this.#removeTiles(pending.tile, 2, seat);
     p.melds.push({ kind: 'peng', tile: pending.tile });
+    /* 三张在手、别人打第四张：选择碰而不是杠，留在手里的那张以后永久不能补杠回头笑。 */
+    p.noAddedGang = p.noAddedGang || [];
+    if (p.hand.includes(pending.tile) && !p.noAddedGang.includes(pending.tile)) {
+      p.noAddedGang.push(pending.tile);
+    }
     this.#removeFromRiver(pending.tile, pending.discarder);
     s.current = seat;
     s.phase = PHASE.DISCARD;
@@ -405,8 +511,8 @@ export class Engine {
     this.#removeFromRiver(pending.tile, pending.discarder);
     const out = [{ type: 'gang', seat, kind: 'gangExposed', tile: pending.tile }];
     out.push(...this.#pay(this.rule.pointGangBase, seat, [pending.discarder], 'pointGang'));
-    this.#lockSingle(seat);
-    out.push(...this.drawTurn(seat, true, true));
+    if (s.finalMode || s.wall.remaining <= 4) out.push(...this.#beginFinal(s.finalStart ?? seat));
+    else out.push(...this.drawTurn(seat, true, true));
     return out;
   }
 
@@ -414,8 +520,9 @@ export class Engine {
 
   #concealedGang(raw, seat) {
     const s = this.state;
-    if (s.phase !== PHASE.DISCARD || s.current !== seat) throw new EngineError('没轮到你');
+    if ((s.phase !== PHASE.DISCARD && s.phase !== PHASE.FINALDRAW) || s.current !== seat) throw new EngineError('没轮到你');
     const p = s.players[seat];
+    if (p.hand.some(isPizi)) throw new EngineError('手里还有油，先点「补」补完再杠');
     if (raw >= 27 || p.hand.filter((t) => t === raw).length !== 4) throw new EngineError('没有四张一样的牌');
     if (p.declared) {
       const nh = p.hand.slice();
@@ -426,36 +533,97 @@ export class Engine {
     p.melds.push({ kind: 'gangConcealed', tile: raw });
     const out = [{ type: 'gang', seat, kind: 'gangConcealed', tile: raw }];
     out.push(...this.#pay(this.rule.concealedGangBase, seat, othersOf(seat), 'concealedGang'));
-    this.#lockSingle(seat);
-    out.push(...this.drawTurn(seat, true, true));
+    if (s.finalMode) out.push(...this.#advanceFinal());
+    else if (s.wall.remaining <= 4) out.push(...this.#beginFinal(seat));
+    else out.push(...this.drawTurn(seat, true, true));
     return out;
   }
 
   #addedGang(raw, seat) {
     const s = this.state;
-    if (s.phase !== PHASE.DISCARD || s.current !== seat) throw new EngineError('没轮到你');
+    if ((s.phase !== PHASE.DISCARD && s.phase !== PHASE.FINALDRAW) || s.current !== seat) throw new EngineError('没轮到你');
     const p = s.players[seat];
+    if (p.hand.some(isPizi)) throw new EngineError('手里还有油，先点「补」补完再杠');
     const mi = p.melds.findIndex((m) => m.tile === raw && m.kind === 'peng');
     if (mi < 0) throw new EngineError('没有这张牌的碰');
     if (!p.hand.includes(raw)) throw new EngineError('手里没有第四张');
+    if ((p.noAddedGang || []).includes(raw)) throw new EngineError('这张牌已经放弃回头笑，不能再补杠');
+    if (p.declared) {
+      const nh = p.hand.slice();
+      nh.splice(nh.indexOf(raw), 1);
+      this.#checkDeclaredGang(p, nh, p.melds.length);
+    }
     this.#removeTiles(raw, 1, seat);
     p.melds[mi].kind = 'gangAdded';
     const out = [{ type: 'gang', seat, kind: 'gangAdded', tile: raw }];
     out.push(...this.#pay(this.rule.addedGangBase, seat, othersOf(seat), 'addedGang'));
-    this.#lockSingle(seat);
-    out.push(...this.drawTurn(seat, true, true));
+    if (s.finalMode) out.push(...this.#advanceFinal());
+    else if (s.wall.remaining <= 4) out.push(...this.#beginFinal(seat));
+    else out.push(...this.drawTurn(seat, true, true));
     return out;
   }
 
   /* ---------------- 胡（只能自摸） ---------------- */
 
+  /** 满天星：中发白模式集齐中/发/白各 4 张，手牌是什么都不看。 */
+  #hasManTianXing(p) {
+    if (!this.rule.withDragons) return false;
+    const exposed = p.piziTiles || [];
+    return PIZI_KINDS.every((raw) => countRaw(p.hand, raw) + countRaw(exposed, raw) === 4);
+  }
+
+  #huManTianXing(seat, afterGang = this.state.lastDrawnAfterGang) {
+    const s = this.state;
+    const p = s.players[seat];
+    const fans = [{ name: '满天星', mult: 10 }];
+    let total = 10;
+    if (afterGang) { total += 0.5; fans.push({ name: '杠上开花', mult: 0.5, add: true }); }
+    if (s.finalMode) { total += 0.5; fans.push({ name: '海底捞月', mult: 0.5, add: true }); }
+    const baseScore = Math.round(this.rule.selfDrawBase * total);
+    const payments = {};
+    for (const o of othersOf(seat)) payments[o] = this.amount(baseScore, seat, o);
+    for (const o of othersOf(seat)) {
+      const v = payments[o] || 0;
+      s.players[o].score -= v;
+      p.score += v;
+    }
+    const dragonSets = this.#settleDragonSets();
+    const gangSettled = this.#settleGangLedger();
+    const result = {
+      winner: seat,
+      hand: p.hand.slice(),
+      melds: p.melds.map((m) => ({ ...m })),
+      winnerPizi: (p.piziTiles || []).slice(),
+      payments,
+      winnerReds: p.redsPlayed,
+      base: baseScore,
+      baseMult: this.rule.selfDrawBase,
+      baseShare: Math.max(1, Math.min(3, Number(this.rule.baseShare) || 1)),
+      mult: total,
+      gangSettled,
+      dragonSets,
+      fans,
+      fanName: fans.map((f) => f.name).join('.'),
+      manTianXing: true,
+      scores: s.players.map((x) => x.score),
+      roundIndex: s.roundIndex,
+      seed: s.seed,
+    };
+    s.phase = PHASE.FINISHED;
+    s.winner = seat;
+    s.drawnGame = false;
+    s.manTianXing = true;
+    s.result = result;
+    return [{ type: 'hu', seat, payments, manTianXing: true }];
+  }
+
   #hu(seat) {
     const s = this.state;
-    if (s.phase !== PHASE.DISCARD || s.current !== seat) throw new EngineError('没轮到你');
+    if ((s.phase !== PHASE.DISCARD && s.phase !== PHASE.FINALDRAW) || s.current !== seat) throw new EngineError('没轮到你');
     const p = s.players[seat];
-    if (p.hand.includes(RED_RAW)) throw new EngineError('手上带红中，不能胡');
+    if (p.hand.some(isPizi)) throw new EngineError('手上带油，不能胡');
     if (s.mustDiscard === seat) throw new EngineError('碰牌后必须先打出一张，不能直接胡');
-    if (!isWinning(p.hand, p.melds.length, this.rule.allowSevenPairs) && !isBaDuiShape(p.hand, p.melds)) {
+    if (!isWinning(p.hand, p.melds.length, this.rule.allowSevenPairs) && !baDuiOK(p.hand, p.melds)) {
       throw new EngineError('牌型不成和');
     }
 
@@ -465,10 +633,11 @@ export class Engine {
       lastDrawn: s.lastDrawn,
       wallRemaining: s.wall.remaining,
       afterGang: !!s.lastDrawnAfterGang,
-      drawCount: s.drawCount,
+      drawCount: p.drawCount || 0,
       dealer: s.dealer,
       seat,
       declared: !!p.declared,
+      seaBottom: !!s.finalMode,
     });
     const baseScore = Math.round(this.rule.selfDrawBase * fan.mult);
     const payments = {};
@@ -478,6 +647,7 @@ export class Engine {
       s.players[o].score -= v;
       p.score += v;
     }
+    const dragonSets = this.#settleDragonSets();
     const gangSettled = this.#settleGangLedger();
     const result = {
       winner: seat,
@@ -487,10 +657,12 @@ export class Engine {
       winnerReds: p.redsPlayed,
       base: baseScore,
       baseMult: this.rule.selfDrawBase,
+      baseShare: Math.max(1, Math.min(3, Number(this.rule.baseShare) || 1)),
       mult: fan.mult,
       gangSettled,
+      dragonSets,
       fans: fan.fans,
-      fanName: fan.baseName,
+      fanName: fan.fanName,
       scores: s.players.map((x) => x.score),
       roundIndex: s.roundIndex,
       seed: s.seed,
@@ -506,74 +678,239 @@ export class Engine {
 
   drawTurn(seat, fromBack = false, afterGang = false) {
     const s = this.state;
+    if (s.finalMode) return this.#finalDraw(seat);
+    if (s.wall.remaining <= 4) return this.#beginFinal(seat);
     const p = s.players[seat];
-    let out = [];
-    let back = !!fromBack;
-    let gangDraw = !!afterGang;
-
-    // 红中必打：摸到红中直接摆台面，从尾牌换，直到摸到真牌
-    for (;;) {
-      const drawn = back ? s.wall.drawBack() : s.wall.drawFront();
-      if (drawn === null) {
-        out.push(this.#finishDrawn());
-        return out;
-      }
-      s.lastDrawn = drawn;
-      s.lastDrawnFromTail = back;
-
-      if (drawn === RED_RAW) {
-        p.redsPlayed++;
-        out.push({ type: 'redDiscarded', seat, count: p.redsPlayed });
-        if (p.redsPlayed >= 4) out.push(...this.#pay(this.rule.redGangBase, seat, othersOf(seat), 'redGang'));
-        out.push({ type: 'wallRemaining', n: s.wall.remaining });
-        back = true;
-        continue;
-      }
-
-      p.hand.push(drawn);
-      p.hand = sortHand(p.hand);
-      s.current = seat;
-      s.phase = PHASE.DISCARD;
-      s.pending = null;
-      s.mustDiscard = null;
-      s.drawCount = (s.drawCount || 0) + 1;
-      s.lastDrawnAfterGang = gangDraw;
-      out.push({ type: 'turn', seat, drawn }, { type: 'wallRemaining', n: s.wall.remaining });
+    const out = [];
+    const drawn = fromBack ? s.wall.drawBack() : s.wall.drawFront();
+    if (drawn === null) {
+      out.push(...this.#finishDrawn());
       return out;
     }
+    s.lastDrawn = drawn;
+    s.lastDrawnFromTail = !!fromBack;
+    p.hand.push(drawn);
+    p.hand = sortHand(p.hand);
+    s.current = seat;
+    s.phase = PHASE.DISCARD;
+    s.pending = null;
+    s.mustDiscard = null;
+    s.drawCount = (s.drawCount || 0) + 1;
+    p.drawCount = (p.drawCount || 0) + 1;
+    s.lastDrawnAfterGang = !!afterGang;
+    out.push({ type: 'turn', seat, drawn }, { type: 'wallRemaining', n: s.wall.remaining });
+    return out;
+  }
+
+  /* ---------------- 补油：手里有油时主动摆出，再从牌尾补真牌 ---------------- */
+
+  #bu(seat) {
+    const s = this.state;
+    const p = s.players[seat];
+    if ((s.phase !== PHASE.DISCARD && s.phase !== PHASE.FINALDRAW) || s.current !== seat) {
+      throw new EngineError('没轮到你');
+    }
+    if (!p.hand.some(isPizi)) throw new EngineError('手里没有油，不用补');
+    const out = [];
+    let lastReal = null;
+    let exposed = 0;
+    const wasAfterGang = !!s.lastDrawnAfterGang;
+
+    /* 点一次「补」把当前手里的油全部摆出；每摆一张就从牌尾补一张。
+       如果尾牌补到的还是油，也算在这同一次「补」里继续摆、继续补。 */
+    while (p.hand.some(isPizi)) {
+      const oils = p.hand.filter(isPizi);
+      for (const raw of oils) {
+        const idx = p.hand.indexOf(raw);
+        if (idx >= 0) p.hand.splice(idx, 1);
+        this.#exposePizi(p, raw, seat, out);
+        exposed++;
+      }
+      if (s.phase === PHASE.FINALDRAW) break; // 最后 4 张只摆油，不补尾牌
+      if (s.wall.remaining <= 4) break;       // 已到海底，不再从尾牌补
+
+      for (let k = 0; k < oils.length; k++) {
+        if (s.wall.remaining <= 4) break;
+        const re = s.wall.drawBack();
+        if (re === null) {
+          if (this.#hasManTianXing(p)) {
+            out.push(...this.#huManTianXing(seat, wasAfterGang));
+            return out;
+          }
+          out.push(...this.#finishDrawn());
+          return out;
+        }
+        s.lastDrawn = re;
+        s.lastDrawnFromTail = true;
+        p.hand.push(re);
+        p.hand = sortHand(p.hand);
+        if (!isPizi(re)) {
+          lastReal = re;
+          s.drawCount = (s.drawCount || 0) + 1;
+          p.drawCount = (p.drawCount || 0) + 1;
+        }
+        out.push({ type: 'wallRemaining', n: s.wall.remaining });
+      }
+    }
+
+    if (exposed > 0) s.lastDrawnAfterGang = wasAfterGang || lastReal !== null;
+    if (lastReal !== null) s.lastDrawn = lastReal;
+
+    /* 中发白 4/4/4：补油后立即满天星，不看手牌型。 */
+    if (this.#hasManTianXing(p)) {
+      out.push(...this.#huManTianXing(seat, wasAfterGang));
+      return out;
+    }
+
+    if (s.phase === PHASE.FINALDRAW) {
+      out.push(...this.#advanceFinal());
+      return out;
+    }
+
+    /* 正常回合补完：如果油是在倒五摸到、补完墙只剩 4 张且没有补到真牌，
+       这一手不打了，直接让下一家开始各摸各胡。 */
+    if (s.wall.remaining <= 4 && lastReal === null) {
+      out.push(...this.#beginFinal(nextSeat(seat)));
+      return out;
+    }
+
+    if (p.melds.length === 4 && p.hand.length === 1) p.singleLocked = p.hand[0];
+    out.push({ type: 'turn', seat, drawn: lastReal }, { type: 'wallRemaining', n: s.wall.remaining });
+    return out;
+  }
+
+  #exposePizi(p, raw, seat, out) {
+    p.redsPlayed++;
+    p.piziTiles.push(raw);
+    out.push({ type: 'bu', seat, tile: raw, count: p.redsPlayed });
+    /* 中发白模式：中/发/白各自满 4 张都算一次暗杠；不能按“总油数”算，
+       否则 2 中 + 2 发也会被误判成四张红中。 */
+    const same = countRaw(p.piziTiles, raw);
+    if (same === 4) {
+      out.push({ type: 'piziGang', seat, tile: raw, count: 4 });
+      out.push(...this.#pay(this.rule.redGangBase, seat, othersOf(seat), 'redGang', raw));
+    }
+  }
+
+  /* ---------------- 海底捞月：最后 4 张各摸各胡 ---------------- */
+
+  #beginFinal(startSeat) {
+    const s = this.state;
+    if (s.finalMode) return this.#finalDraw(s.current);
+    s.finalMode = true;
+    s.phase = PHASE.FINALDRAW;
+    s.pending = null;
+    s.mustDiscard = null;
+    s.finalQueue = [0, 1, 2, 3].map((k) => (startSeat + k) % 4);
+    s.finalIndex = 0;
+    return this.#finalDraw(s.finalQueue[0]);
+  }
+
+  /** 海底每人只抓一张：抓到油摆出来不补牌；抓到真牌可胡、可暗杠/回头笑，杠了也不补牌 */
+  #finalDraw(seat) {
+    const s = this.state;
+    if (s.finalIndex >= s.finalQueue.length) return this.#finishDrawn();
+    const expected = s.finalQueue[s.finalIndex];
+    const p = s.players[seat] || s.players[expected];
+    seat = expected;
+    if (s.wall.remaining <= 0) return this.#finishDrawn();
+    const drawn = s.wall.drawFront();
+    if (drawn === null) return this.#finishDrawn();
+    s.current = seat;
+    s.phase = PHASE.FINALDRAW;
+    s.lastDrawn = drawn;
+    s.lastDrawnFromTail = false;
+    s.lastDrawnAfterGang = false;
+    s.drawCount = (s.drawCount || 0) + 1;
+    const out = [{ type: 'finalTurn', seat }, { type: 'wallRemaining', n: s.wall.remaining }];
+    p.hand.push(drawn);
+    p.hand = sortHand(p.hand);
+    s.mustDiscard = null;
+    out.push({ type: 'turn', seat, drawn }, { type: 'finalTurn', seat });
+    /* 海底摸到油也先留在手里，等玩家点「补」再摆出；本阶段补油不补尾牌。 */
+    return out;
+  }
+
+  #finalPass(seat) {
+    const s = this.state;
+    if (s.phase !== PHASE.FINALDRAW || s.current !== seat) throw new EngineError('现在不能过');
+    return this.#advanceFinal();
+  }
+
+  #advanceFinal() {
+    const s = this.state;
+    s.finalIndex++;
+    if (s.finalIndex >= s.finalQueue.length) return this.#finishDrawn();
+    return this.#finalDraw(s.finalQueue[s.finalIndex]);
   }
 
   #finishDrawn() {
     const s = this.state;
+    const dragonSets = this.#settleDragonSets();
     const gangSettled = this.#settleGangLedger();
     s.phase = PHASE.FINISHED;
     s.drawnGame = true;
     s.winner = null;
-    s.result = { gangSettled };
-    return { type: 'drawnGame' };
+    s.result = { gangSettled, dragonSets };
+    return [{ type: 'drawnGame' }];
   }
 
   /* ---------------- 分账 ---------------- */
 
-  /** 皮子（红中）份子：每方份子 = 1 + 该方打出的红中数，赢家与付钱方互乘。
-   *  双方都没红中 → 1×1；一方 1 个红中 → 2；双方各 1 个 → 2×2=4。 */
+  /** 份子：每方份子 = 基础份子（围增 1/2/3）+ 该方打出的油数 + 该方自由加增。
+   *  赢家与付钱方互乘；双方都没油、没加增、倒1 → 1×1。 */
   amount(base, winner, payer) {
-    const wm = 1 + Math.min(this.state.players[winner].redsPlayed, 8);
-    const pm = 1 + Math.min(this.state.players[payer].redsPlayed, 8);
+    const cap = this.rule.withDragons ? 12 : 8;
+    const add = (seat) => (this.rule.addonEnabled ? (this.state.addons?.[seat] || 0) : 0);
+    const share = Math.max(1, Math.min(3, Number(this.rule.baseShare) || 1));
+    const wm = share + add(winner) + Math.min(this.state.players[winner].redsPlayed, cap);
+    const pm = share + add(payer) + Math.min(this.state.players[payer].redsPlayed, cap);
     return base * wm * pm;
   }
 
+  #gangCount(p) {
+    return p.melds.filter((m) => m.kind === 'gangExposed' || m.kind === 'gangConcealed' || m.kind === 'gangAdded').length;
+  }
+
   /** 杠分/回头笑：本局先记账，等这一小局结束（胡牌或流局）再统一加减 */
-  #pay(base, winner, payers, reason) {
+  #pay(base, winner, payers, reason, tile = null) {
     const out = [];
     for (const payer of payers) {
       if (payer === winner) continue;
       const v = this.amount(base, winner, payer);
-      const entry = { type: 'score', from: payer, to: winner, amount: v, reason, pending: true };
+      const entry = { type: 'score', from: payer, to: winner, amount: v, reason, tile, pending: true };
       this.state.gangLedger.push(entry);
       out.push(entry);
     }
     return out;
+  }
+
+  /** 中发白局末组合与四张油暗杠：只在当前手牌里数，不把历史补出的油算回来。 */
+  #settleDragonSets() {
+    const s = this.state;
+    if (s.dragonSetsSettled) return [];
+    s.dragonSetsSettled = true;
+    const sets = [];
+    for (const p of s.players) {
+      const handSet = this.rule.withDragons ? dragonSetOf(p.hand) : null;
+      if (handSet) {
+        const base = handSet.kind === 'added' ? this.rule.addedGangBase : this.rule.concealedGangBase;
+        const entries = this.#pay(base, p.seat, othersOf(p.seat),
+          handSet.kind === 'added' ? 'dragonAdded' : 'dragonConcealed', null);
+        sets.push({ ...handSet, seat: p.seat, base, entries, total: entries.reduce((a, e) => a + e.amount, 0) });
+        continue;
+      }
+      /* 手里攥着 4 张同一种油：按暗杠记；已经补到台面的 4 张在 #exposePizi 时已记过，这里不会重复。 */
+      for (const raw of PIZI_KINDS) {
+        if (countRaw(p.hand, raw) === 4) {
+          const entries = this.#pay(this.rule.concealedGangBase, p.seat, othersOf(p.seat), 'dragonQuad', raw);
+          sets.push({ kind: 'quad', seat: p.seat, tile: raw, base: this.rule.concealedGangBase,
+            entries, total: entries.reduce((a, e) => a + e.amount, 0) });
+        }
+      }
+    }
+    s.dragonSets = sets;
+    return sets;
   }
 
   /** 局末统一结算本局攒下的杠分 */
@@ -619,7 +956,7 @@ export class Engine {
       const rest = p.hand.slice();
       rest.splice(rest.indexOf(t), 1);
       if (rest.length % 3 !== 1) continue;
-      const w = waitingTiles(rest, 0, this.rule.allowSevenPairs);
+      const w = waitingTiles(rest, 0, this.rule.allowSevenPairs, 0, 0);
       if (w.length) out.push({ discard: t, waits: w });
     }
     return out;
@@ -636,20 +973,24 @@ export class Engine {
     return [{ type: 'declareIntent', seat }];
   }
 
-  /** 报听的人杠之前，杠完必须还听原来那几张牌，否则不允许 */
+  /** 报听后杠：杠完必须仍听牌，而且听口和报听时完全一样；散听/改口都不允许 */
+  #canGangAfterDeclare(p, afterHand, meldCount) {
+    if (!p.declared) return true;
+    const waits = waitingTiles(afterHand, meldCount, this.rule.allowSevenPairs, 0, p.melds.filter((m) => m.kind === 'peng').length);
+    const old = p.declareWaits || [];
+    return waits.length > 0 && waits.length === old.length && waits.every((t) => old.includes(t));
+  }
+
   #checkDeclaredGang(p, afterHand, meldCount) {
     if (!p.declared) return;
-    const waits = waitingTiles(afterHand, meldCount, this.rule.allowSevenPairs);
-    const old = p.declareWaits || [];
-    const same = waits.length > 0 && waits.length === old.length && waits.every((t) => old.includes(t));
-    if (!same) throw new EngineError('这一杠会改口或不再听牌，报听时不能这么杠');
+    if (!this.#canGangAfterDeclare(p, afterHand, meldCount)) throw new EngineError('这一杠会改口或不再听牌，报听时不能这么杠');
   }
 
   /** 四副露凑齐且手里正好剩一张：立刻亮牌锁定，之后不能换 */
   #lockSingle(seat) {
     const p = this.state.players[seat];
     if (this.state.mustDiscard === seat) return;   // 还要打牌的回合不锁，打完再说
-    if (p.melds.length === 4 && p.hand.length === 1 && p.singleLocked === null) {
+    if (p.melds.length === 4 && p.hand.length === 1 && !p.hand.some(isPizi) && p.singleLocked === null) {
       p.singleLocked = p.hand[0];
     }
   }
@@ -657,26 +998,40 @@ export class Engine {
   /** 轮到某人时他能做的非出牌动作（给 UI 与 AI 用） */
   options(seat) {
     const s = this.state;
-    if (s.phase !== PHASE.DISCARD || s.current !== seat) return [];
+    if ((s.phase !== PHASE.DISCARD && s.phase !== PHASE.FINALDRAW) || s.current !== seat) return [];
     const p = s.players[seat];
+    /* 手里有油时，这一回合只能先补油；补完才能进入胡/杠/出牌。 */
+    if (p.hand.some(isPizi)) return [{ type: 'bu' }];
     const out = [];
     if (this.canHu(seat)) out.push({ type: 'hu' });
     for (const kind of ALL_KINDS) {
-      if (kind === RED_RAW) continue;
-      if (p.hand.filter((t) => t === kind).length === 4) out.push({ type: 'gangConcealed', tile: kind });
-      if (p.melds.some((m) => m.kind === 'peng' && m.tile === kind) && p.hand.includes(kind)) {
-        out.push({ type: 'gangAdded', tile: kind });
+      if (isPizi(kind)) continue;
+      if (p.hand.filter((t) => t === kind).length === 4) {
+        if (!p.declared) out.push({ type: 'gangConcealed', tile: kind });
+        else {
+          const nh = p.hand.slice();
+          for (let i = 0; i < 4; i++) nh.splice(nh.indexOf(kind), 1);
+          if (this.#canGangAfterDeclare(p, nh, p.melds.length + 1)) out.push({ type: 'gangConcealed', tile: kind });
+        }
+      }
+      if (p.melds.some((m) => m.kind === 'peng' && m.tile === kind) && p.hand.includes(kind) && !(p.noAddedGang || []).includes(kind)) {
+        if (!p.declared) out.push({ type: 'gangAdded', tile: kind });
+        else {
+          const nh = p.hand.slice(); nh.splice(nh.indexOf(kind), 1);
+          if (this.#canGangAfterDeclare(p, nh, p.melds.length)) out.push({ type: 'gangAdded', tile: kind });
+        }
       }
     }
+    if (s.phase === PHASE.FINALDRAW) out.push({ type: 'finalPass' });
     return out;
   }
 
   canHu(seat) {
     if (this.state.mustDiscard === seat) return false;
     const p = this.state.players[seat];
-    if (p.hand.includes(RED_RAW)) return false;
+    if (p.hand.some(isPizi)) return false;
     if (isWinning(p.hand, p.melds.length, this.rule.allowSevenPairs)) return true;
-    return isBaDuiShape(p.hand, p.melds);
+    return baDuiOK(p.hand, p.melds);
   }
 
   /** 玩家视角快照（联机传输 / UI 渲染用），隐藏别人的手牌 */
@@ -688,6 +1043,15 @@ export class Engine {
       phase: s.phase,
       roundIndex: s.roundIndex,
       wallRemaining: s.wall.remaining,
+      finalMode: !!s.finalMode,
+      finalQueue: (s.finalQueue || []).slice(),
+      finalIndex: s.finalIndex || 0,
+      addons: (s.addons || []).slice(),
+      addonChosen: (s.addonChosen || []).slice(),
+      addonEnabled: !!this.rule.addonEnabled,
+      rounds: this.rule.rounds,
+      withDragons: !!this.rule.withDragons,
+      baseShare: Math.max(1, Math.min(3, Number(this.rule.baseShare) || 1)),
       lastDrawn: s.current === seat ? s.lastDrawn : null,
       myActions: this.options(seat),
       myDeclareOptions: this.declareOptions(seat),
@@ -712,6 +1076,7 @@ export class Engine {
         melds: p.melds.map((m) => ({ ...m })),
         river: p.river.slice(),
         redsPlayed: p.redsPlayed,
+        piziTiles: (p.piziTiles || []).slice(),
         score: p.score,
         isBot: p.isBot,
       })),

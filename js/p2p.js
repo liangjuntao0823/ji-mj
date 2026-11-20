@@ -2,8 +2,8 @@
  * 不需要电脑、不需要服务器，四个人在同一个 WiFi 下就能打。
  */
 import { Engine, DEFAULT_RULE } from './engine.js';
-import { nextAction, discardCandidate } from './bot.js';
-import { initTable, renderAll, updateTimer, showResult, hideResult, backToHome, updateReadyBar, setRoomCode, setPaused, showBoard, hideBoard } from './ui.js';
+import { nextAction, timeoutAction } from './bot.js';
+import { initTable, renderAll, updateTimer, showResult, hideResult, backToHome, updateReadyBar, setRoomCode, setPaused, showBoard, hideBoard, setNetLatency, clearNetLatency } from './ui.js';
 
 const ROUNDS = 8;
 const HOST_PREFIX = 'jianli-mj-';
@@ -62,6 +62,11 @@ function peerOptions() {
 
 const P = {
   role: null,          // 'host' | 'guest'
+  hostOnly: false,     // 电脑开房：电脑只当主机，不占座位
+  seatReady: false,
+  lastHostMsgAt: 0,
+  watchdogTimer: null,
+  entryMode: 'create',
   code: '',
   name: '',
   seat: 0,
@@ -92,6 +97,8 @@ const P = {
   clockOffset: 0,      // 房主时钟 - 本机时钟（毫秒），用来对齐倒计时
   reconnectTimer: null,
   reconnectTry: 0,
+  latencyTimer: null,
+  rule: { ...DEFAULT_RULE, rounds: ROUNDS },
 };
 
 const el = (id) => document.getElementById(id);
@@ -103,11 +110,14 @@ function makeCode() {
 
 /* ---------------- 大厅 UI ---------------- */
 
-function buildEntryUI() {
+function buildEntryUI(mode = 'create') {
+  const isJoin = mode === 'join';
   el('lobby').classList.add('show');
   el('lobby-name-row').style.display = 'none';
-  document.querySelector('.lobby-title').textContent = '手机联机';
-  document.querySelector('.lobby-sub').textContent = '同一个 WiFi：一个人开房，其他人输 6 位房号加入';
+  document.querySelector('.lobby-title').textContent = isJoin ? '加入房间' : (P.hostOnly ? '电脑开房' : '创建房间');
+  document.querySelector('.lobby-sub').textContent = isJoin
+    ? (P.hostOnly ? '电脑开房 · 输入电脑上的 6 位房号' : '手机直连 · 输入房主给你的 6 位房号')
+    : (P.hostOnly ? '电脑当主机，不占座位；4 个玩家用手机输入房号加入' : '手机直连 · 自己当房主，开局后空位补机器人');
 
   let box = el('p2p-box');
   if (!box) {
@@ -118,20 +128,25 @@ function buildEntryUI() {
   }
   box.innerHTML = `
     <div id="p2p-entry">
-      <input id="p2p-name" maxlength="8" placeholder="你的名字" autocomplete="off">
-      <button class="big-btn" id="p2p-create">创建房间</button>
-      <div class="p2p-or">或者加入别人的房间</div>
+      ${(!P.hostOnly || isJoin) ? `<input id="p2p-name" maxlength="8" placeholder="你的名字" autocomplete="off">` : `
+      <div class="pc-host-tip">电脑只负责开房和对局，不占玩家座位。<br>4 个玩家各自用手机打开本页面，输入房号加入。</div>`}
+      ${isJoin ? `
       <div class="p2p-join-row">
-        <input id="p2p-code" maxlength="6" placeholder="房号" autocomplete="off" spellcheck="false">
-        <button class="big-btn ghost" id="p2p-join">加入</button>
-      </div>
+        <input id="p2p-code" maxlength="6" placeholder="6 位房号" autocomplete="off" spellcheck="false">
+        <button class="big-btn ghost" id="p2p-join">加入房间</button>
+      </div>` : `
+      <button class="big-btn" id="p2p-create">${P.hostOnly ? '电脑开房' : '创建房间'}</button>`}
     </div>
     <div id="p2p-code-show" class="hidden"></div>
   `;
-  el('p2p-name').value = P.name || localStorage.getItem('jianli_name') || '';
-  el('p2p-create').onclick = () => createRoom();
-  el('p2p-join').onclick = () => joinRoom();
-  el('p2p-code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+  const nameInput = el('p2p-name');
+  if (nameInput) nameInput.value = P.name || localStorage.getItem('jianli_name') || '';
+  const createBtn = el('p2p-create');
+  if (createBtn) createBtn.onclick = () => createRoom();
+  const joinBtn = el('p2p-join');
+  if (joinBtn) joinBtn.onclick = () => joinRoom();
+  const codeInput = el('p2p-code');
+  if (codeInput) codeInput.addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
   el('lobby-actions').innerHTML = '';
   el('lobby-seats').innerHTML = '';
   status('');
@@ -156,12 +171,18 @@ function readName() {
 
 async function createRoom() {
   if (!window.Peer) { status('联机组件没加载，刷新一下页面'); return; }
-  const name = readName();
-  if (!name) return;
+  const hostOnly = !!P.hostOnly;
+  let name = '电脑主机';
+  if (!hostOnly) {
+    name = readName();
+    if (!name) return;
+  }
   await ensureIce();
   P.role = 'host';
-  P.seat = 0;
-  P.players = [{ name, isBot: false, online: true }];
+  P.seat = hostOnly ? -1 : 0;
+  const cfg = window.JIANLI_HOME_RULE || {};
+  P.rule = { ...DEFAULT_RULE, rounds: [8, 16, 32].includes(Number(cfg.rounds)) ? Number(cfg.rounds) : ROUNDS, withDragons: !!cfg.withDragons, addonEnabled: !!cfg.addonEnabled, baseShare: Math.max(1, Math.min(3, Number(cfg.baseShare) || 1)) };
+  P.players = hostOnly ? [] : [{ name, isBot: false, online: true }];
   P.version++;
 
   const tryBind = (attempt) => {
@@ -199,11 +220,11 @@ function renderSeats() {
   const box = el('lobby-seats');
   box.style.display = 'block';
   box.innerHTML = '';
-  const names = ['东（房主）', '南', '西', '北'];
+  const names = P.hostOnly ? ['东', '南', '西', '北'] : ['东（房主）', '南', '西', '北'];
   for (let i = 0; i < 4; i++) {
     const p = P.players[i];
     const row = document.createElement('div');
-    const mine = P.role === 'host' ? i === 0 : i === P.seat;
+    const mine = !P.hostOnly && (P.role === 'host' ? i === 0 : i === P.seat);
     row.className = 'seat-row' + (p ? ' filled' : '') + (mine ? ' me' : '');
     row.textContent = `${names[i]}   ${p ? p.name + (p.isBot ? '（机器人）' : '') : '空位'}`;
     box.append(row);
@@ -213,6 +234,10 @@ function renderSeats() {
 function renderHostActions() {
   const actions = el('lobby-actions');
   actions.innerHTML = '';
+  if (P.hostOnly && P.started && !P.over && P.engine && P.engine.state.phase !== 'finished') {
+    actions.innerHTML = '<div class="pc-host-running">对局进行中 · 房号 ' + P.code + '<br><span>电脑保持本页面打开；玩家掉线后可按原名字回来</span></div>';
+    return;
+  }
   if (P.started && !P.over && P.engine && P.engine.state.phase !== 'finished') return;
   const b = document.createElement('button');
   b.className = 'big-btn';
@@ -229,7 +254,7 @@ function pushToGuest(conn, seat) {
   const send = () => {
     if (P.role !== 'host' || !conn || !conn.open) return;
     try {
-      conn.send({ t: 'hello', seat, started: P.started, over: P.over, code: P.code, players: P.players });
+      conn.send({ t: 'hello', seat, started: P.started, over: P.over, code: P.code, players: P.players, hostOnly: P.hostOnly });
       conn.send({ t: 'state', seat, started: P.started, over: P.over, version: P.version, snap: snapshotFor(seat) });
     } catch {}
   };
@@ -238,20 +263,21 @@ function pushToGuest(conn, seat) {
 }
 
 /* 绑定一条玩家连接的事件；close 时只有这条连接仍是该座位的当前连接才降级为机器人 */
-/* 心跳：3 秒 ping 一次，10 秒没 pong 判掉线（手机切后台、直接关页面都能兜住） */
+/* 心跳：1 秒 ping 一次，10 秒没 pong 判掉线（手机切后台、直接关页面都能兜住） */
 function heartbeatGuests(now) {
-  for (const c of P.conns) {
+  for (const c of P.conns.slice()) {
     const p = P.players[c.seat];
     if (!p || p.isBot) continue;
-    if (c.lastPong && now - c.lastPong > 10000 && p.online) {
+    if (c.lastSeen && now - c.lastSeen > 10000 && p.online) {
       p.online = false;
       P.version++;
       P.lastKey = '';
       P.deadline = null;
+      try { c.conn.close(); } catch {}
     }
-    if (!c.lastPingAt || now - c.lastPingAt > 3000) {
+    if (!c.lastPingAt || now - c.lastPingAt > 1000) {
       c.lastPingAt = now;
-      try { if (c.conn.open) c.conn.send({ t: 'ping' }); } catch (e) {}
+      try { if (c.conn.open) c.conn.send({ t: 'ping', ts: now }); } catch (e) {}
     }
   }
 }
@@ -276,12 +302,13 @@ function onGuest(conn) {
   let metaSeat = conn.metadata && typeof conn.metadata.seat === 'number' ? conn.metadata.seat : -1;
 
   /* 断线重连：先按座位号 + 名字对；页面刷新后座位号会丢，再按名字找空位还原 */
-  if ((metaSeat <= 0 || !P.players[metaSeat]) && name) {
-    const idx = P.players.findIndex((p, i) => i > 0 && p && p.name === name);
-    if (idx > 0) metaSeat = idx;
+  const minSeat = P.hostOnly ? 0 : 1;
+  if ((metaSeat < minSeat || !P.players[metaSeat]) && name) {
+    const idx = P.players.findIndex((p, i) => i >= minSeat && p && p.name === name);
+    if (idx >= minSeat) metaSeat = idx;
   }
   /* 断线重连：座位号 + 名字都对得上就原座还原，对局进行中也允许回来 */
-  if (metaSeat > 0 && P.players[metaSeat] && P.players[metaSeat].name === name) {
+  if (metaSeat >= minSeat && P.players[metaSeat] && P.players[metaSeat].name === name) {
     const seat = metaSeat;
     for (const c of P.conns.slice()) {
       if (c.seat === seat && c.conn !== conn) { try { c.conn.close(); } catch {} }
@@ -289,7 +316,7 @@ function onGuest(conn) {
     P.conns = P.conns.filter((c) => c.seat !== seat);
     P.players[seat].online = true;
     P.players[seat].isBot = false;
-    P.conns.push({ conn, seat, lastPong: Date.now(), lastPingAt: 0 });
+    P.conns.push({ conn, seat, lastPong: Date.now(), lastSeen: Date.now(), lastPingAt: 0 });
     P.version++;
     P.lastKey = '';
     bindGuestConn(conn, seat, name);
@@ -306,14 +333,15 @@ function onGuest(conn) {
   }
   const used = new Set(P.conns.map((c) => c.seat));
   let seat = -1;
-  for (let i = 1; i < 4; i++) if (!used.has(i) && !P.players[i]) { seat = i; break; }
+  const firstSeat = P.hostOnly ? 0 : 1;
+  for (let i = firstSeat; i < 4; i++) if (!used.has(i) && !P.players[i]) { seat = i; break; }
   if (seat < 0) {
     try { conn.send({ t: 'reject', reason: '房间满了（4 人）' }); } catch {}
     setTimeout(() => { try { conn.close(); } catch {} }, 300);
     return;
   }
   P.players[seat] = { name, isBot: false, online: true };
-  P.conns.push({ conn, seat });
+  P.conns.push({ conn, seat, lastSeen: Date.now() });
   P.version++;
   hostPeerSeq++;
 
@@ -326,15 +354,25 @@ function onGuest(conn) {
 function hostBroadcastLobby() {
   const players = P.players.map((p) => ({ name: p && p.name, isBot: !!(p && p.isBot), online: !!(p && p.online) }));
   for (const g of P.conns) {
-    try { if (g.conn.open) g.conn.send({ t: 'lobby', code: P.code, players }); } catch {}
+    try { if (g.conn.open) g.conn.send({ t: 'lobby', code: P.code, players, hostOnly: P.hostOnly }); } catch {}
   }
 }
 
 function hostMsg(conn, seat, msg) {
   if (!msg || typeof msg !== 'object') return;
+  const touch = P.conns.find((x) => x.conn === conn);
+  if (touch) touch.lastSeen = Date.now();
   if (msg.t === 'pong') {
     const c = P.conns.find((x) => x.conn === conn);
-    if (c) c.lastPong = Date.now();
+    if (c) {
+      c.lastPong = Date.now();
+      const rtt = Number(msg.ts) ? Date.now() - Number(msg.ts) : NaN;
+      if (Number.isFinite(rtt) && rtt >= 0) { c.lastRtt = rtt; updateHostLatency(); }
+    }
+    return;
+  }
+  if (msg.t === 'gping') {
+    try { if (conn.open) conn.send({ t: 'gpong', ts: msg.ts }); } catch (e) {}
     return;
   }
   if (msg.type === 'act' || msg.t === 'act') {
@@ -348,7 +386,7 @@ function hostMsg(conn, seat, msg) {
   } else if (msg.t === 'lobbyReq') {
     /* 客机连上后主动拉一次：房主开局前后立即推的消息可能丢失，这步保证座位号和牌面一定拿得到 */
     pushToGuest(conn, seat);
-    try { conn.send({ t: 'lobby', code: P.code, players: P.players }); } catch {}
+    try { conn.send({ t: 'lobby', code: P.code, players: P.players, hostOnly: P.hostOnly }); } catch {}
   } else if (msg.t === 'newmatch') {
     voteNewMatch(seat);
   } else if (msg.t === 'bye') {
@@ -373,7 +411,7 @@ function startHostGame() {
     const names = P.players.map((p, i) => (p && p.name) || '玩家' + (i + 1));
     const botSeats = [];
     for (let i = 0; i < 4; i++) if (P.players[i] && P.players[i].isBot) botSeats.push(i);
-    P.engine = new Engine({ seed: (Date.now() & 0xffffffff) >>> 0, names, botSeats, dealer: 0, roundIndex: 1 });
+    P.engine = new Engine({ seed: (Date.now() & 0xffffffff) >>> 0, names, botSeats, dealer: 0, roundIndex: 1, rule: P.rule });
     P.engine.startHand();
   } else {
     P.engine.startNextHand((Date.now() & 0xffffffff) >>> 0);
@@ -386,14 +424,19 @@ function startHostGame() {
   P.lastBotAt = 0;
   P.version++;
   P.lastSentVersion = -1;
-  enterGame();
+  if (!P.hostOnly) enterGame();
+  else {
+    const st = el('lobby-status');
+    if (st) st.textContent = '对局已开始，电脑保持本页面打开；房号 ' + P.code;
+    renderHostActions();
+  }
   hostPush();
 }
 
 /* 有人点了「下一局」：记下来，广播，全员都点了才真的开下一局 */
 function markReady(seat) {
   if (!P.engine || P.engine.state.phase !== 'finished') return;
-  if (P.engine.state.roundIndex >= ROUNDS) return;
+  if (P.engine.state.roundIndex >= (P.rule.rounds || ROUNDS)) return;
   if (!P.nextReady) P.nextReady = [false, false, false, false];
   P.nextReady[seat] = true;
   P.version++;
@@ -413,7 +456,7 @@ function allReady() {
 function doNextHand() {
   P.nextReady = [false, false, false, false];
   if (!P.engine || P.engine.state.phase !== 'finished') return;
-  if (P.engine.state.roundIndex >= ROUNDS) {
+  if (P.engine.state.roundIndex >= (P.rule.rounds || ROUNDS)) {
     P.over = true;
     P.version++;
     hostPush();
@@ -464,9 +507,33 @@ function doNewMatch() {
 
 /* ---------------- 房主驱动 ---------------- */
 
+function updateHostLatency() {
+  const vals = P.conns.map((c) => Number(c.lastRtt)).filter((n) => Number.isFinite(n) && n >= 0);
+  if (vals.length) setNetLatency(Math.max(...vals), P.hostOnly ? 'pc' : 'p2p');
+}
+
+/* 客机每 2.5 秒测一次到房主的往返延迟；房主在心跳里测每一台客机 */
+function startLatencyLoop() {
+  if (P.latencyTimer) clearInterval(P.latencyTimer);
+  if (P.role !== 'guest') return;
+  P.latencyTimer = setInterval(() => {
+    if (!P.hostConn || !P.hostConn.open) return;
+    try { P.hostConn.send({ t: 'gping', ts: Date.now() }); } catch (e) {}
+  }, 1000);
+  if (P.watchdogTimer) clearInterval(P.watchdogTimer);
+  P.watchdogTimer = setInterval(() => {
+    if (P.role !== 'guest' || !P.hostConn || !P.hostConn.open) return;
+    if (P.lastHostMsgAt && Date.now() - P.lastHostMsgAt > 8000) {
+      P.lastHostMsgAt = Date.now();
+      status('房主连接超时，正在自动重连…');
+      guestReconnectNow();
+    }
+  }, 2000);
+}
+
 function startHostLoop() {
   if (P.loop) clearInterval(P.loop);
-  P.loop = setInterval(hostTick, 250);
+  P.loop = setInterval(hostTick, 120);
 }
 
 /* 累计「胡局 / 总番」，供最终记分板用（P2P 房主算，广播给客人） */
@@ -484,14 +551,14 @@ function trackStatsP() {
 }
 
 function hostTick() {
+  const now = Date.now();
+  heartbeatGuests(now);
   if (!P.engine) return;
   trackStatsP();
   const s = P.engine.state;
-  const now = Date.now();
-  heartbeatGuests(now);
   if (s.phase === 'finished') {
     P.deadline = null;
-    if (s.roundIndex >= ROUNDS && !P.over) {   // 打满 8 局直接出总排名，等四人齐点再来一场
+    if (s.roundIndex >= (P.rule.rounds || ROUNDS) && !P.over) {   // 打满 8 局直接出总排名，等四人齐点再来一场
       P.over = true;
       P.version++;
       hostPush();
@@ -505,7 +572,7 @@ function hostTick() {
   const offlineNames = P.players.filter((p) => p && !p.isBot && !p.online).map((p) => p.name);
   if (offlineNames.length) {
     if (P.deadline) { P.deadline.pausedAt = P.deadline.pausedAt || now; }
-    setPaused(offlineNames, true);
+    setPaused(offlineNames, true, { roomCode: P.code, canRefresh: false });
     if (!P.boardForced) { P.boardForced = true; showBoard(); }
     hostPush();
     return;
@@ -537,23 +604,20 @@ function hostTick() {
     if (d.kind === 'discard') {
       const who = s.players[d.seat];
       who.declareIntent = false;  /* 超时自动出牌，报听声明作废 */
-      /* 单钓已明牌时只能打刚摸的那张 */
-      const forced = (who.singleLocked !== null && s.lastDrawn !== null && who.hand.includes(s.lastDrawn))
-        ? s.lastDrawn : null;
-      const t = forced !== null ? forced : discardCandidate(who.hand);
-      if (t !== null) applyHostAction({ type: 'discard', tile: t }, d.seat);
+      const a = timeoutAction(P.engine, d.seat);
+      if (a.type !== 'pass') applyHostAction(a, d.seat);
     } else {
       applyHostAction({ type: 'pass' }, d.seat);
     }
     return;
   }
 
-  if (now - P.lastBotAt >= 1100) {
+  if (now - P.lastBotAt >= 420) {
     let botSeat = -1;
     if (s.phase === 'awaitingClaim' && s.pending) {
       const x = s.pending.outstanding.find((i) => P.players[i] && P.players[i].isBot);
       if (x !== undefined) botSeat = x;
-    } else if (s.phase === 'awaitingDiscard' && P.players[s.current] && P.players[s.current].isBot) {
+    } else if ((s.phase === 'awaitingDiscard' || s.phase === 'finalDraw') && P.players[s.current] && P.players[s.current].isBot) {
       botSeat = s.current;
     }
     if (botSeat >= 0) {
@@ -579,12 +643,12 @@ function snapshotFor(seat) {
   snap.seats = P.players.map((p) => ({ name: p && p.name, isBot: !!(p && p.isBot), online: !!(p && p.online) }));
   snap.canStart = seat === 0 && !P.started;
   snap.canNext = !!(P.engine && P.engine.state.phase === 'finished');
-  snap.rounds = ROUNDS;
+  snap.rounds = P.rule.rounds || ROUNDS;
   snap.code = P.code;
   snap.nextReady = (P.nextReady || [false, false, false, false]).slice();
   snap.paused = P.players.some((p) => p && !p.isBot && !p.online);
   snap.offlineNames = P.players.filter((p) => p && !p.isBot && !p.online).map((p) => p.name);
-  snap.seriesOver = !!(P.engine && P.engine.state.phase === 'finished' && P.engine.state.roundIndex >= ROUNDS);
+  snap.seriesOver = !!(P.engine && P.engine.state.phase === 'finished' && P.engine.state.roundIndex >= (P.rule.rounds || ROUNDS));
   snap.stats = { wins: (P.stats.wins || []).slice(), fan: (P.stats.fan || []).slice() };
   snap.newMatch = (P.newMatch || [false, false, false, false]).slice();
   snap.newMatchCount = (P.newMatch || []).filter((v, i) => v && P.players[i] && !P.players[i].isBot).length;
@@ -613,12 +677,15 @@ function hostPush(force = false) {
 
 async function joinRoom() {
   if (!window.Peer) { status('联机组件没加载，刷新一下页面'); return; }
-  const code = (el('p2p-code').value || '').trim().toUpperCase();
-  if (code.length !== 6) { status('请输入 6 位房号'); el('p2p-code').focus(); return; }
+  const codeInput = el('p2p-code');
+  if (!codeInput) { status('请从首页「加入房间」进入'); return; }
+  const code = (codeInput.value || '').trim().toUpperCase();
+  if (code.length !== 6) { status('请输入 6 位房号'); codeInput.focus(); return; }
   if (!readName()) return;
   await ensureIce();
   P.role = 'guest';
   P.code = code;
+  P.seatReady = false;
   P.reconnectTry = 0;
   status('正在连接房主…');
 
@@ -635,6 +702,13 @@ function guestConnect() {
   if (P.role !== 'guest' || !P.code) return;
   /* 连接代数：旧连接的回调一律丢弃，避免重连风暴 */
   const gen = (P.connGen = (P.connGen || 0) + 1);
+  clearTimeout(P.joinTimer);
+  P.hostConn = null;
+  /* 连接尝试超时：Peer 没报错也没 open 时不能干等 */
+  P.joinTimer = setTimeout(() => {
+    if (gen !== P.connGen || P.role !== 'guest') return;
+    if (!P.hostConn || !P.hostConn.open) guestRetry('连接超时');
+  }, 9000);
   const oldPeer = P.peer;
   P.peer = null;
   if (oldPeer) { try { oldPeer.destroy(); } catch {} }
@@ -653,13 +727,16 @@ function guestConnect() {
       clearTimeout(P.joinTimer);
       P.joinTimer = null;
       P.reconnectTry = 0;
+      P.lastHostMsgAt = Date.now();
+      setPaused([], false);
       status('');
       if (!P.inGame) { setEntryVisible(false); showRoomCode(); renderGuestSeats(); }
+      startLatencyLoop();
       /* 握手：房主在连接刚建立时推的 hello/state 可能丢，这里主动拉，直到拿到座位号为止 */
       clearInterval(P.handshakeTimer);
       let tries = 0;
       const greet = () => {
-        if (gen !== P.connGen || P.role !== 'guest' || P.seat > 0) {
+        if (gen !== P.connGen || P.role !== 'guest' || P.seatReady) {
           clearInterval(P.handshakeTimer);
           P.handshakeTimer = null;
           return;
@@ -678,16 +755,19 @@ function guestConnect() {
     conn.on('data', (msg) => { if (gen === P.connGen) guestMsg(msg); });
     conn.on('close', () => {
       if (gen !== P.connGen || P.role !== 'guest') return;
+      clearTimeout(P.joinTimer); P.joinTimer = null;
       guestRetry('房主那边断开了');
     });
     conn.on('error', () => {
       if (gen !== P.connGen || P.role !== 'guest') return;
+      clearTimeout(P.joinTimer); P.joinTimer = null;
       guestRetry('连接出错');
     });
   });
   peer.on('error', (e) => {
     if (gen !== P.connGen || P.role !== 'guest') return;
     const t = e && e.type;
+    clearTimeout(P.joinTimer); P.joinTimer = null;
     if (t === 'peer-unavailable') { guestRetry('房号还没上线'); return; }
     if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') { guestRetry(errText(e)); return; }
     status(errText(e));
@@ -704,17 +784,39 @@ function guestRetry(reason) {
     return;
   }
   const delay = Math.min(1000 + P.reconnectTry * 800, 6000);
+  /* 直连两次没通就改走 TURN 中继，跨运营商/跨网络时更稳 */
+  if (P.reconnectTry === 2 && !window.JIANLI_FORCE_RELAY) {
+    window.JIANLI_FORCE_RELAY = true;
+    status('直连没通，改用中继重连…');
+  }
   status(`${reason || '连接断了'}，正在重连房主…（第 ${P.reconnectTry} 次）`);
+  if (P.inGame) setPaused([P.name || '我'], true, { roomCode: P.code, canRefresh: true, onRefresh: guestReconnectNow });
   P.reconnectTimer = setTimeout(() => {
     P.reconnectTimer = null;
     if (P.role === 'guest') guestConnect();
   }, delay);
 }
 
+function guestReconnectNow() {
+  clearTimeout(P.reconnectTimer);
+  P.reconnectTimer = null;
+  P.reconnectTry = 0;
+  if (P.role !== 'guest') return;
+  const t = el('pause-text'); if (t) t.innerHTML = '正在按原房号和名字重连…';
+  guestConnect();
+}
+window.__jianliReconnect = guestReconnectNow;
+
 function guestMsg(msg) {
   if (!msg || typeof msg !== 'object') return;
+  P.lastHostMsgAt = Date.now();
   if (msg.t === 'ping') {
-    try { if (P.hostConn && P.hostConn.open) P.hostConn.send({ t: 'pong' }); } catch (e) {}
+    try { if (P.hostConn && P.hostConn.open) P.hostConn.send({ t: 'pong', ts: msg.ts }); } catch (e) {}
+    return;
+  }
+  if (msg.t === 'gpong') {
+    const rtt = Number(msg.ts) ? Date.now() - Number(msg.ts) : NaN;
+    if (Number.isFinite(rtt) && rtt >= 0) setNetLatency(rtt, P.hostOnly ? 'pc' : 'p2p');
     return;
   }
   if (msg.t === 'reject') {
@@ -726,7 +828,9 @@ function guestMsg(msg) {
   }
   if (msg.t === 'hello') {
     P.seat = msg.seat || 0;
+    P.seatReady = true;
     P.code = msg.code || P.code;
+    if (typeof msg.hostOnly === 'boolean') P.hostOnly = msg.hostOnly;
     if (Array.isArray(msg.players)) { P.players = msg.players; P.lobbySig = ''; }
     if (!P.inGame) { setEntryVisible(false); showRoomCode(); renderGuestSeats(); }
     return;
@@ -734,6 +838,7 @@ function guestMsg(msg) {
   if (msg.t === 'lobby') {
     if (Array.isArray(msg.players)) { P.players = msg.players; P.lobbySig = ''; }
     if (msg.code) P.code = msg.code;
+    if (typeof msg.hostOnly === 'boolean') P.hostOnly = msg.hostOnly;
     if (!P.inGame) { showRoomCode(); renderGuestSeats(); }
     return;
   }
@@ -762,7 +867,7 @@ function guestMsg(msg) {
     }
     if (snap.code) P.code = snap.code;
     setRoomCode(P.code);
-    setPaused(snap.offlineNames || [], true);
+    setPaused(snap.offlineNames || [], !!snap.paused, { roomCode: P.code, canRefresh: false });
     if (snap.paused) showBoard();
     /* 只有版本真的变了才重绘，否则每 250ms 白跑一遍 DOM 会卡 */
     if (P.inGame && changed) { renderAll(); maybeShowResult(); }
@@ -779,7 +884,7 @@ function renderGuestSeats() {
   const box = el('lobby-seats');
   box.style.display = 'block';
   box.innerHTML = '';
-  const names = ['东（房主）', '南', '西', '北'];
+  const names = P.hostOnly ? ['东', '南', '西', '北'] : ['东（房主）', '南', '西', '北'];
   for (let i = 0; i < 4; i++) {
     const p = seats[i];
     const row = document.createElement('div');
@@ -787,7 +892,7 @@ function renderGuestSeats() {
     row.textContent = `${names[i]}   ${p ? p.name + (p.isBot ? '（机器人）' : '') : '空位'}`;
     box.append(row);
   }
-  document.querySelector('.lobby-sub').textContent = `房号 ${P.code} · 等房主开始`;
+  document.querySelector('.lobby-sub').textContent = `房号 ${P.code} · 等${P.hostOnly ? '电脑' : '房主'}开始`;
   el('lobby-actions').innerHTML = '';
   const tip = document.createElement('div');
   tip.style.cssText = 'color: rgba(243,236,216,.6); font-size: 14px; margin-top: 10px;';
@@ -800,14 +905,14 @@ function renderGuestSeats() {
 function enterGame() {
   if (P.inGame) return;
   /* 客机必须已经拿到房主分配的座位号才能进牌桌，否则座位方向、下一局就绪标记全会错位 */
-  if (P.role === 'guest' && !P.seat) return;
+  if (P.role === 'guest' && !P.seatReady) return;
   if (!P.snap && P.engine) P.snap = wrapSnapshot(snapshotFor(P.role === 'host' ? 0 : P.seat));
   P.inGame = true;
   el('lobby').classList.remove('show');
   initTable({
     humanSeat: P.seat,
     mode: 'p2p',
-    totalRounds: ROUNDS,
+    totalRounds: (P.snap && P.snap.rounds) || ROUNDS,
     getState: () => P.snap,
     getMyActions: () => (P.snap && P.snap.myActions) || [],
     getDeclareOptions: () => (P.snap && P.snap.myDeclareOptions) || [],
@@ -863,6 +968,9 @@ function nextHand() {
 }
 
 function exitP2P() {
+  if (P.latencyTimer) { clearInterval(P.latencyTimer); P.latencyTimer = null; }
+  if (P.watchdogTimer) { clearInterval(P.watchdogTimer); P.watchdogTimer = null; }
+  clearNetLatency();
   const role = P.role;
   P.role = null;          // 先摘掉身份，避免主动退出时触发自动重连
   if (role === 'host') {
@@ -877,22 +985,29 @@ function exitP2P() {
   setRoomCode(null);
   backToHome();
   el('lobby').classList.remove('show');
+  const entryBox = el('p2p-box');
+  if (entryBox) entryBox.remove();
+  const codeShow = el('p2p-code-show');
+  if (codeShow) codeShow.remove();
   reset();
   if (window.__lobbyBack === exitP2P) window.__lobbyBack = null;
 }
 
 function reset() {
+  if (P.latencyTimer) { clearInterval(P.latencyTimer); P.latencyTimer = null; }
+  if (P.watchdogTimer) { clearInterval(P.watchdogTimer); P.watchdogTimer = null; }
+  clearNetLatency();
   clearInterval(P.loop);
   clearInterval(P.uiTimer);
   clearInterval(P.handshakeTimer);
   clearTimeout(P.joinTimer);
   clearTimeout(P.reconnectTimer);
   Object.assign(P, {
-    role: null, code: '', seat: 0, peer: null, conns: [], players: [],
+    role: null, hostOnly: false, seatReady: false, code: '', seat: 0, peer: null, conns: [], players: [],
     engine: null, started: false, over: false, version: 0, deadline: null,
     lastKey: '', lastBotAt: 0, lastSentVersion: -1, snap: null, inGame: false,
     resultKey: '', lastPhase: '', lastStateVersion: -1, hostConn: null, loop: null, uiTimer: null, joinTimer: null,
-    clockOffset: 0, connGen: 0, reconnectTimer: null, reconnectTry: 0, handshakeTimer: null,
+    clockOffset: 0, connGen: 0, reconnectTimer: null, reconnectTry: 0, handshakeTimer: null, latencyTimer: null, watchdogTimer: null, lastHostMsgAt: 0,
   });
 }
 
@@ -904,7 +1019,7 @@ function namesOf() {
 
 function maybeShowResult(isFinal) {
   const snap = P.snap;
-  if (snap && snap.phase === 'finished' && snap.roundIndex >= ROUNDS) {
+  if (snap && snap.phase === 'finished' && snap.roundIndex >= (P.rule.rounds || ROUNDS)) {
     showBoard();
   }
   if (!snap || snap.phase !== 'finished') return;
@@ -921,7 +1036,7 @@ function maybeShowResult(isFinal) {
   if (snap.drawnGame) {
     showResult({
       title: '流局',
-      subtitle: `牌墙摸完 · 庄家不变，下一局继续（${snap.roundIndex}/${ROUNDS}）`,
+      subtitle: `牌墙摸完 · 庄家不变，下一局继续（${snap.roundIndex}/${P.rule.rounds || ROUNDS}）`,
       hand: null,
       payments: null,
       scores: snap.players.map((p) => p.score),
@@ -940,7 +1055,7 @@ function maybeShowResult(isFinal) {
   const multText = r.mult ? ` ×${r.mult}` : '';
   showResult({
     title: `${winner.name} 自摸`,
-    subtitle: `${fanText}${multText} · 每家 ${r.base} 分起 · 第 ${snap.roundIndex}/${ROUNDS} 局`,
+    subtitle: `${fanText}${multText} · 每家 ${r.base} 分起 · 第 ${snap.roundIndex}/${P.rule.rounds || ROUNDS} 局`,
     winnerSeat: r.winner,
     hand: r.hand,
     melds: r.melds,
@@ -963,9 +1078,14 @@ function showFinal() {
     scores,
     names,
     ranked: names.map((name, seat) => ({ seat, name, score: scores[seat] })).sort((a, b) => b.score - a.score),
-    rounds: ROUNDS,
+    rounds: snap.rounds || P.rule.rounds || ROUNDS,
     mySeat: P.role === 'host' ? 0 : P.seat,
     stats: snap.stats,
+    winnerSeat: (!snap.drawnGame && snap.result && snap.result.winner != null) ? snap.result.winner : null,
+    hand: (!snap.drawnGame && snap.result && snap.result.hand) || null,
+    melds: (!snap.drawnGame && snap.result && snap.result.melds) || null,
+    fans: (!snap.drawnGame && snap.result && snap.result.fans) || null,
+    lastResult: snap.result ? { ...snap.result, drawnGame: !!snap.drawnGame } : null,
   });
 }
 
@@ -988,10 +1108,14 @@ function errText(e) {
   return t || (e.message || '未知错误');
 }
 
-export function openP2P() {
+export function openP2P(mode = 'create', hostOnly = false) {
   window.__lobbyBack = exitP2P;
+  window.__jianliReconnect = guestReconnectNow;
+  clearNetLatency();
   if (P.role) { el('lobby').classList.add('show'); return; }
-  buildEntryUI();
+  P.hostOnly = !!hostOnly;
+  P.entryMode = mode === 'join' ? 'join' : 'create';
+  buildEntryUI(P.entryMode);
 }
 
 window.P2P = { open: openP2P, _state: () => P };

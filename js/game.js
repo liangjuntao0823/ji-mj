@@ -1,11 +1,11 @@
 /* 单机对局控制 */
-import { Engine } from './engine.js';
-import { nextAction, discardCandidate } from './bot.js';
-import { label, SEAT_LABEL } from './tiles.js';
+import { Engine, DEFAULT_RULE } from './engine.js';
+import { nextAction, timeoutAction } from './bot.js';
+import { SEAT_LABEL } from './tiles.js';
 import {
   G as UIView, initTable, renderAll, updateTimer, showToast, clearToast,
   showResult, hideResult, backToHome, resetEventState, initHome,
-  showBoard, hideBoard, setRoomCode,
+  showBoard, hideBoard, setRoomCode, setNetLatency, clearNetLatency,
 } from './ui.js';
 import { openLAN } from './net.js';
 import { openP2P } from './p2p.js';
@@ -33,35 +33,226 @@ const el = (id) => document.getElementById(id) || null;
  * 如果 UI 提供了同 id 的按钮，这里会自动绑上，不需要额外代码。 */
 const on = (id, fn) => { const n = el(id); if (n) n.addEventListener('click', fn); };
 
+/* 首页房间设置：局数 / 红中或中发白 / 自由加增 / 围增 */
+const HOME_RULE = { rounds: 8, withDragons: false, addonEnabled: false, baseShare: 1 };
+
+function syncDeckChoice(source = '') {
+  const red = el('cfg-red');
+  const dragons = el('cfg-dragons');
+  if (!red || !dragons) return;
+  if (source === 'cfg-red' && red.checked) dragons.checked = false;
+  else if (source === 'cfg-dragons' && dragons.checked) red.checked = false;
+  else if (red.checked && dragons.checked) dragons.checked = false;
+  /* 红中 / 中发白必须二选一，默认红中；用户把两个都取消时自动回到红中。 */
+  if (!red.checked && !dragons.checked) red.checked = true;
+}
+
+function syncHomeRuleControls() {
+  const roundsSeg = el('cfg-rounds');
+  if (roundsSeg) roundsSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('is-on', Number(b.dataset.rounds) === HOME_RULE.rounds));
+  const red = el('cfg-red');
+  const dragons = el('cfg-dragons');
+  if (red) red.checked = !HOME_RULE.withDragons;
+  if (dragons) dragons.checked = !!HOME_RULE.withDragons;
+  const addon = el('cfg-addon');
+  if (addon) addon.checked = !!HOME_RULE.addonEnabled;
+  const shareSeg = el('cfg-share');
+  if (shareSeg) shareSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('is-on', Number(b.dataset.share) === HOME_RULE.baseShare));
+}
+
+function renderLobbyRules() {
+  const panel = el('lobby-rules');
+  const grid = el('lobby-rules-grid');
+  const summary = el('lobby-rules-summary');
+  if (!panel || !grid || !summary || !panel.classList.contains('is-on')) return;
+  const mode = HOME_RULE.withDragons ? '中发白' : '红中';
+  summary.textContent = `${HOME_RULE.rounds} 局 · ${mode} · ${HOME_RULE.addonEnabled ? '自由加增' : '不加增'} · 围增倒${HOME_RULE.baseShare}`;
+  const seg = (labelText, group, items, current) => `
+    <div class="lobby-rule-item">
+      <span>${labelText}</span>
+      <div class="lr-seg">${items.map(([value, text]) => `<button type="button" data-lr-group="${group}" data-lr-value="${value}" class="${String(value) === String(current) ? 'is-on' : ''}">${text}</button>`).join('')}</div>
+    </div>`;
+  grid.innerHTML = [
+    seg('局数', 'rounds', [[8, '8局'], [16, '16局'], [32, '32局']], HOME_RULE.rounds),
+    seg('牌组', 'deck', [['red', '红中'], ['dragons', '中发白']], HOME_RULE.withDragons ? 'dragons' : 'red'),
+    seg('加增', 'addon', [[0, '不加增'], [1, '自由加增']], HOME_RULE.addonEnabled ? 1 : 0),
+    seg('围增', 'share', [[1, '倒1'], [2, '倒2'], [3, '倒3']], HOME_RULE.baseShare),
+  ].join('');
+  grid.querySelectorAll('button[data-lr-group]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const group = b.dataset.lrGroup;
+      const value = b.dataset.lrValue;
+      if (group === 'rounds') HOME_RULE.rounds = [8, 16, 32].includes(Number(value)) ? Number(value) : 8;
+      if (group === 'deck') { HOME_RULE.withDragons = value === 'dragons'; }
+      if (group === 'addon') HOME_RULE.addonEnabled = value === '1';
+      if (group === 'share') HOME_RULE.baseShare = Math.max(1, Math.min(3, Number(value) || 1));
+      syncHomeRuleControls();
+      renderLobbyRules();
+      refreshHomeLabels();
+    });
+  });
+}
+
+function refreshHomeLabels() {
+  const singleSub = el('single-sub');
+  if (singleSub) singleSub.textContent = `我 + 三台机器人 · ${HOME_RULE.rounds} 局一场`;
+  const statRounds = el('home-stat-rounds');
+  if (statRounds) statRounds.textContent = String(HOME_RULE.rounds);
+  const statTiles = el('home-stat-tiles');
+  if (statTiles) statTiles.textContent = HOME_RULE.withDragons ? '120' : '112';
+  const statCap = el('home-stat-cap');
+  if (statCap) statCap.textContent = HOME_RULE.withDragons ? '×12' : '×8';
+  const modeSummary = el('mode-summary');
+  if (modeSummary) {
+    modeSummary.textContent = `${HOME_RULE.rounds} 局 · ${HOME_RULE.withDragons ? '中发白' : '红中'} · ${HOME_RULE.addonEnabled ? '自由加增' : '不加增'}${HOME_RULE.baseShare > 1 ? ` · 围增倒${HOME_RULE.baseShare}` : ''}`;
+  }
+  window.JIANLI_HOME_RULE = { ...HOME_RULE };
+}
+
+function readHomeRule() {
+  syncDeckChoice();
+  const seg = el('cfg-rounds');
+  if (seg) {
+    const on = seg.querySelector('.is-on');
+    HOME_RULE.rounds = Number(on && on.dataset.rounds) || 8;
+  }
+  HOME_RULE.withDragons = !!(el('cfg-dragons') && el('cfg-dragons').checked);
+  HOME_RULE.addonEnabled = !!(el('cfg-addon') && el('cfg-addon').checked);
+  const shareSeg = el('cfg-share');
+  if (shareSeg) {
+    const on = shareSeg.querySelector('.is-on');
+    HOME_RULE.baseShare = Math.max(1, Math.min(3, Number(on && on.dataset.share) || 1));
+  }
+  refreshHomeLabels();
+  renderLobbyRules();
+  return { ...HOME_RULE };
+}
+
+function setLobbyRuleVisible(show) {
+  const panel = el('lobby-rules');
+  if (!panel) return;
+  panel.classList.toggle('is-on', !!show);
+  if (show) renderLobbyRules();
+}
+(function bindHomeRule() {
+  const seg = el('cfg-rounds');
+  if (seg) seg.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-rounds]');
+    if (!b) return;
+    seg.querySelectorAll('button').forEach((x) => x.classList.toggle('is-on', x === b));
+    readHomeRule();
+  });
+  const red = el('cfg-red');
+  const dragons = el('cfg-dragons');
+  if (red) red.addEventListener('change', () => { syncDeckChoice('cfg-red'); readHomeRule(); });
+  if (dragons) dragons.addEventListener('change', () => { syncDeckChoice('cfg-dragons'); readHomeRule(); });
+  const addon = el('cfg-addon');
+  if (addon) addon.addEventListener('change', readHomeRule);
+  const shareSeg = el('cfg-share');
+  if (shareSeg) shareSeg.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-share]');
+    if (!b) return;
+    shareSeg.querySelectorAll('button').forEach((x) => x.classList.toggle('is-on', x === b));
+    readHomeRule();
+  });
+  readHomeRule();
+  const modal = el('mode-modal');
+  const open = el('mode-open');
+  const close = el('mode-close');
+  if (open && modal) open.addEventListener('click', () => { readHomeRule(); modal.classList.add('show'); });
+  if (close && modal) close.addEventListener('click', () => { modal.classList.remove('show'); readHomeRule(); });
+  if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) { modal.classList.remove('show'); readHomeRule(); } });
+  const lobbyEdit = el('lobby-rules-edit');
+  if (lobbyEdit && modal) lobbyEdit.addEventListener('click', () => { readHomeRule(); modal.classList.add('show'); });
+})();
+
 /* ---------------- 入口 ---------------- */
 initHome();
+
+/* 联机方式：手机直连（P2P）或公网服务器（同域 /api）。
+ * 首页的切换入口只改行为，不删原来的两个入口。 */
+const SERVER_URL = String(window.JIANLI_SERVER_URL || '').replace(/\/+$/, '');
+const NET_MODE_KEY = 'jianli_net_mode';
+let NET_MODE = 'p2p';
+try { const saved = localStorage.getItem(NET_MODE_KEY); NET_MODE = (saved === 'server' || saved === 'pc') ? saved : 'p2p'; } catch (e) {}
+try {
+  const q = new URLSearchParams(location.search).get('net');
+  if (q === 'server' || q === 'p2p' || q === 'pc') NET_MODE = q;
+} catch (e) {}
+
+function paintNetMode() {
+  document.querySelectorAll('.net-opt').forEach((b) => {
+    const on = b.dataset.net === NET_MODE;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  const createSub = el('lan-sub');
+  const joinSub = el('p2p-sub');
+  if (NET_MODE === 'server') {
+    if (createSub) createSub.textContent = '公网服务器 · 第一人当房主';
+    if (joinSub) joinSub.textContent = '公网服务器 · 进当前房间';
+  } else if (NET_MODE === 'pc') {
+    if (createSub) createSub.textContent = '电脑当主机 · 4 人用房号加入';
+    if (joinSub) joinSub.textContent = '手机直连 · 输入电脑开的房号';
+  } else {
+    if (createSub) createSub.textContent = '手机直连 · 自己当房主';
+    if (joinSub) joinSub.textContent = '手机直连 · 输入 6 位房号';
+  }
+  const lm = el('lan-main');
+  if (lm) lm.textContent = '创建房间';
+  /* 电脑开房：电脑只负责开房，首页只保留创建房间和模式选择，隐藏单机与加入 */
+  const pc = NET_MODE === 'pc';
+  const singleBtn = el('btn-single');
+  const joinBtn = el('home-p2p');
+  if (singleBtn) singleBtn.style.display = pc ? 'none' : '';
+  if (joinBtn) joinBtn.style.display = pc ? 'none' : '';
+}
+
+function setNetMode(mode) {
+  NET_MODE = (mode === 'server' || mode === 'pc') ? mode : 'p2p';
+  try { localStorage.setItem(NET_MODE_KEY, NET_MODE); } catch (e) {}
+  clearNetLatency();
+  paintNetMode();
+}
+
+/* action: 'create' 开一桌当房主；'join' 进别人的房间 */
+function openNetwork(action = 'join') {
+  const mode = action === 'create' ? 'create' : 'join';
+  readHomeRule();
+  if (NET_MODE === 'server') {
+    if (!SERVER_URL) {
+      showToast('公网服务器地址还没配置');
+      return;
+    }
+    openLAN(SERVER_URL, mode);
+    setLobbyRuleVisible(mode === 'create');
+    return;
+  }
+  openP2P(mode, NET_MODE === 'pc' && mode === 'create');
+  setLobbyRuleVisible(mode === 'create');
+}
+
+paintNetMode();
+document.querySelectorAll('.net-opt').forEach((b) => {
+  b.addEventListener('click', () => { setNetMode(b.dataset.net); });
+});
+
 on('lobby-back', () => {
+  setLobbyRuleVisible(false);
   if (window.__lobbyBack) { window.__lobbyBack(); return; }
   const lb = el('lobby'); if (lb) lb.classList.remove('show');
   backToHome();
 });
 
 on('btn-single', startSingle);
-/* 联机入口：有服务器（node server.js / 云托管）走局域网模式；
- * 纯静态打开（双击 HTML、手机本地打开）没有后端，走手机 P2P 建房。 */
-on('btn-lan', () => {
-  if (location.protocol === 'file:') { openP2P(); return; }
-  let settled = false;
-  const go = (serverMode) => {
-    if (settled) return;
-    settled = true;
-    if (serverMode) openLAN(); else openP2P();
-  };
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => { ctrl.abort(); go(false); }, 1200);
-  fetch('/api/room', { signal: ctrl.signal, cache: 'no-store' })
-    .then((r) => { clearTimeout(timer); r.json().then(() => go(true)).catch(() => go(false)); })
-    .catch(() => { clearTimeout(timer); go(false); });
-});
+on('btn-lan', () => openNetwork('create'));
 
 function startSingle() {
+  clearNetLatency();
   const seed = (Date.now() & 0xffffffff) >>> 0;
-  const e = new Engine({ seed, names: S.names, botSeats: [1, 2, 3], dealer: 0, roundIndex: 1 });
+  const cfg = readHomeRule();
+  S.rounds = cfg.rounds;
+  const e = new Engine({ seed, names: S.names, botSeats: [1, 2, 3], dealer: 0, roundIndex: 1, rule: { ...DEFAULT_RULE, rounds: cfg.rounds, withDragons: cfg.withDragons, addonEnabled: cfg.addonEnabled, baseShare: cfg.baseShare } });
   S.engine = e;
   S.mode = 'single';
   S.humanSeat = 0;
@@ -126,31 +317,18 @@ function toastEvents(events) {
   const s = S.engine.state;
   for (const ev of events) {
     switch (ev.type) {
-      case 'redDiscarded':
-        showToast(`${s.players[ev.seat].name} 打出油（第 ${ev.count} 张）`);
-        break;
-      case 'peng':
-        showToast(`${s.players[ev.seat].name} 碰 ${label(ev.tile)}`);
-        break;
-      case 'gang': {
-        const kindName = { gangExposed: '点杠', gangConcealed: '暗杠', gangAdded: '蓄杠' }[ev.kind] || '杠';
-        showToast(`${s.players[ev.seat].name} ${kindName} ${label(ev.tile)}`);
-        break;
-      }
       case 'score':
         showToast(`${s.players[ev.from].name} → ${s.players[ev.to].name} ${ev.amount} 分 · ${reasonName(ev.reason)}`, 'score');
         break;
-      case 'hu':
-        showToast(`${s.players[ev.seat].name} 自摸！`, 'score');
-        break;
-      case 'drawnGame':
-        showToast('牌墙摸完，流局');
-        break;
+      /* 碰 / 杠 / 补油 / 胡 / 流局 统一由 ui.js 的中央动作提示展示，顶部不再重复。 */
     }
   }
 }
 
-const reasonName = (r) => ({ selfDraw: '自摸', pointGang: '点杠', concealedGang: '暗杠', addedGang: '蓄杠', redGang: '油暗杠' }[r] || r);
+const reasonName = (r) => ({
+  selfDraw: '自摸', pointGang: '明杠', concealedGang: '暗杠', addedGang: '回头笑',
+  redGang: '油杠', dragonAdded: '中发白各2 · 回头笑', dragonConcealed: '中发白各3 · 暗杠', dragonQuad: '四张油暗杠',
+}[r] || r);
 
 /* ---------------- 调度 ---------------- */
 
@@ -159,6 +337,14 @@ function schedule() {
   const s = S.engine.state;
   if (!S.running) return;
 
+  if (s.phase === 'awaitingAddon') { stopTimer(); return; }
+  if (s.phase === 'finalDraw' && s.players[s.current] && s.players[s.current].isBot) {
+    S.botTimer = setTimeout(() => {
+      const a = nextAction(S.engine, s.current) || { type: 'finalPass' };
+      act(a, s.current);
+    }, BOT_DELAY);
+    return;
+  }
   if (s.phase === 'finished') {
     stopTimer();
     setTimeout(showHandResult, 950);
@@ -197,11 +383,9 @@ function schedule() {
         const st = S.engine.state;
         const me = st.players[S.humanSeat];
         me.declareIntent = false;   /* 超时自动出牌，报听声明作废 */
-        /* 单钓已明牌时只能打刚摸的那张 */
-        const forced = (me.singleLocked !== null && st.lastDrawn !== null && me.hand.includes(st.lastDrawn))
-          ? st.lastDrawn : null;
-        const tile = forced !== null ? forced : discardCandidate(me.hand);
-        if (tile !== null) act({ type: 'discard', tile }, S.humanSeat);
+        const a = timeoutAction(S.engine, S.humanSeat);
+        if (a.type === 'pass') return;
+        act(a, S.humanSeat);
       });
     }
     return;
@@ -303,6 +487,11 @@ function showFinal() {
     ranked,
     mySeat: S.humanSeat,
     rounds: S.rounds,
+    winnerSeat: (!s.drawnGame && s.result && s.result.winner != null) ? s.result.winner : null,
+    hand: (!s.drawnGame && s.result && s.result.hand) || null,
+    melds: (!s.drawnGame && s.result && s.result.melds) || null,
+    fans: (!s.drawnGame && s.result && s.result.fans) || null,
+    lastResult: s.result ? { ...s.result, drawnGame: !!s.drawnGame } : null,
   });
 }
 
@@ -323,4 +512,32 @@ export function attachEngine(engine, humanSeat, mode, names, rounds) {
 }
 
 /* 新 UI 的入口就这三个：开局、局域网、手机 P2P */
-window.JianliGame = { startSingle, attachEngine, openLAN, openP2P, S };
+/* 公网服务器连通测试：请求回来即记录本次往返延迟 */
+async function testServerLatency() {
+  const btn = document.getElementById('home-net-test');
+  const label = document.getElementById('home-net-test-label');
+  if (btn) { btn.disabled = true; btn.classList.remove('is-ok', 'is-bad'); }
+  if (label) label.textContent = '测试中…';
+  if (!SERVER_URL) {
+    if (label) label.textContent = '未配置';
+    if (btn) { btn.disabled = false; btn.classList.add('is-bad'); }
+    showToast('公网服务器地址还没配置');
+    return;
+  }
+  const started = performance.now();
+  try {
+    const res = await fetch(`${SERVER_URL}/api/room?cb=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error('http ' + res.status);
+    await res.json();
+    const ms = Math.round(performance.now() - started);
+    if (label) label.textContent = `公网 ${ms}ms`;
+    if (btn) { btn.classList.toggle('is-ok', ms <= 100); btn.classList.toggle('is-bad', ms > 100); }
+  } catch (e) {
+    if (label) label.textContent = '公网连接失败';
+    if (btn) btn.classList.add('is-bad');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+window.JianliGame = { startSingle, attachEngine, openLAN, openP2P, openNetwork, setNetMode, testServerLatency, setLobbyRuleVisible, getHomeRule: readHomeRule, S };
