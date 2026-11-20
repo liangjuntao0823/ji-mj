@@ -15,8 +15,21 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8878);
 const ROUNDS = 8;
 
+function makeCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function validHostPassword(value) {
+  const d = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  return String(value || '').trim() === d.toISOString().slice(11, 16).replace(':', '');
+}
+
 const room = {
-  code: String(Math.floor(100000 + Math.random() * 900000)),
+  code: makeCode(),
+  created: false,
+  ended: false,
+  endedBy: '',
+  endedAt: 0,
   nextReady: [false, false, false, false],
   newMatch: [false, false, false, false],
   players: [],      // { name, token, isBot, online, lastSeen }
@@ -77,6 +90,30 @@ function readBody(req) {
 const seatByToken = (token) => room.players.findIndex((p) => p.token && p.token === token);
 const cleanName = (s) => String(s || '').replace(/[<>{}"'`\\]/g, '').trim().slice(0, 8) || '玩家';
 
+function resetRoom(code = makeCode()) {
+  room.code = code;
+  room.created = false;
+  room.ended = false;
+  room.endedBy = '';
+  room.endedAt = 0;
+  room.nextReady = [false, false, false, false];
+  room.newMatch = [false, false, false, false];
+  room.players = [];
+  room.engine = null;
+  room.started = false;
+  room.over = false;
+  room.paused = false;
+  room.pausedAt = null;
+  room.stats = { wins: [0, 0, 0, 0], fan: [0, 0, 0, 0] };
+  room.lastResultKey = '';
+  room.deadline = null;
+  room.lastKey = '';
+  room.lastBotAt = 0;
+  room.rule = { ...DEFAULT_RULE, rounds: ROUNDS };
+  room.version++;
+}
+
+
 function applyAction(action, seat) {
   if (!room.engine) return false;
   try {
@@ -121,6 +158,7 @@ function offlineNames() {
 
 /* 心跳：12 秒没请求算掉线；局中有人掉线就全场暂停、冻结超时和机器人 */
 function syncPresence() {
+  if (room.ended) return;
   const now = Date.now();
   for (const p of room.players) {
     if (!p || p.isBot) continue;
@@ -189,12 +227,15 @@ function snapshotFor(seat) {
   snap.stats = { wins: room.stats.wins.slice(), fan: room.stats.fan.slice() };
   snap.paused = !!room.paused;
   snap.offlineNames = offlineNames();
+  snap.ended = !!room.ended;
+  snap.endedBy = room.endedBy || '';
   return snap;
 }
 
 /* ---------------- 驱动（机器人 + 超时） ---------------- */
 
 setInterval(() => {
+  if (room.ended) return;
   syncPresence();
   if (!room.started || !room.engine) return;
   if (room.paused) return;             // 有人掉线：冻结超时、机器人、倒计时
@@ -269,13 +310,34 @@ const server = http.createServer(async (req, res) => {
         over: room.over,
         paused: room.paused,
         seats: room.players.map((p) => ({ name: p.name, isBot: p.isBot, online: p.online })),
-        rounds: ROUNDS,
+        rounds: room.rule.rounds || ROUNDS,
+        rule: room.rule,
       });
+    }
+
+    if (url.pathname === '/api/create' && req.method === 'POST') {
+      const body = await readBody(req);
+      if (!validHostPassword(body.password)) return json(res, 403, { error: '验证没通过' });
+      if (room.created && !room.ended && room.started) return json(res, 409, { error: '对局进行中，先解散再开新房间' });
+      const name = cleanName(body.name);
+      const token = randomBytes(10).toString('hex');
+      resetRoom(makeCode());
+      room.created = true;
+      room.players = [{ name, token, isBot: false, online: true, lastSeen: Date.now() }];
+      room.rule = { ...DEFAULT_RULE, ...(body.rule && typeof body.rule === 'object' ? body.rule : {}) };
+      room.rule.rounds = [8, 16, 32].includes(Number(room.rule.rounds)) ? Number(room.rule.rounds) : ROUNDS;
+      room.version++;
+      return json(res, 200, { code: room.code, seat: 0, token, name });
     }
 
     if (url.pathname === '/api/join' && req.method === 'POST') {
       const body = await readBody(req);
       const name = cleanName(body.name);
+      const code = String(body.code || '').trim();
+      if (!room.created) return json(res, 409, { error: '房主还没开房' });
+      if (!code || code !== room.code) return json(res, 404, { error: '房号不对' });
+      if (room.ended) return json(res, 410, { error: '房间已解散，请让房主重新开房' });
+      syncPresence();
       /* 断线回来：名字 + 房号（同一个服务器房间）对上，就坐回原位，发新 token */
       const oldSeat = room.players.findIndex((p) => p && !p.isBot && p.name === name);
       const canReclaim = oldSeat >= 0 && !room.players[oldSeat].online;
@@ -284,7 +346,7 @@ const server = http.createServer(async (req, res) => {
         room.players[oldSeat] = { ...room.players[oldSeat], token, online: true, lastSeen: Date.now() };
         room.version++;
         syncPresence();
-        return json(res, 200, { seat: oldSeat, token, name: room.players[oldSeat].name, resumed: true });
+        return json(res, 200, { code: room.code, seat: oldSeat, token, name: room.players[oldSeat].name, resumed: true });
       }
       if (room.started && !room.over) return json(res, 409, { error: '本局已经开始，等这局打完再加入' });
       if (oldSeat >= 0 && room.players[oldSeat].online) return json(res, 409, { error: '这个名字已经在座，换一个名字' });
@@ -293,13 +355,45 @@ const server = http.createServer(async (req, res) => {
       const seat = room.players.length;
       room.players.push({ name, token, isBot: false, online: true, lastSeen: Date.now() });
       room.version++;
-      return json(res, 200, { seat, token, name: room.players[seat].name });
+      return json(res, 200, { code: room.code, seat, token, name: room.players[seat].name });
+    }
+
+    if (url.pathname === '/api/dissolve' && req.method === 'POST') {
+      const body = await readBody(req);
+      const seat = seatByToken(body.token || '');
+      if (seat !== 0) return json(res, 403, { error: '只有房主能解散房间' });
+      room.ended = true;
+      room.endedBy = room.players[seat] ? room.players[seat].name : '房主';
+      room.endedAt = Date.now();
+      room.version++;
+      return json(res, 200, { ok: true, code: room.code });
+    }
+
+    if (url.pathname === '/api/quit' && req.method === 'POST') {
+      const body = await readBody(req);
+      const seat = seatByToken(body.token || '');
+      if (seat < 0) return json(res, 401, { error: '未入座' });
+      const who = room.players[seat] ? room.players[seat].name : '玩家';
+      room.ended = true;
+      room.endedBy = who;
+      room.endedAt = Date.now();
+      room.paused = false;
+      room.version++;
+      return json(res, 200, { ok: true, code: room.code, endedBy: who });
     }
 
     if (url.pathname === '/api/state' && req.method === 'GET') {
       const token = url.searchParams.get('token') || '';
       const seat = seatByToken(token);
       if (seat < 0) return json(res, 401, { error: '未入座' });
+      if (room.ended) {
+        return json(res, 200, {
+          seat, code: room.code, started: room.started, version: room.version,
+          ended: true, endedBy: room.endedBy,
+          snapshot: room.engine ? snapshotFor(seat) : null,
+          rounds: room.rule.rounds || ROUNDS, rule: room.rule,
+        });
+      }
       room.players[seat].lastSeen = Date.now();
       room.players[seat].online = true;
       syncPresence();
@@ -307,7 +401,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, {
           seat, code: room.code, started: false, version: room.version,
           seats: room.players.map((p) => ({ name: p.name, isBot: p.isBot, online: p.online })),
-          snapshot: null, rounds: ROUNDS,
+          snapshot: null, rounds: room.rule.rounds || ROUNDS, rule: room.rule,
         });
       }
       return json(res, 200, {
@@ -316,7 +410,8 @@ const server = http.createServer(async (req, res) => {
         started: room.started,
         version: room.version,
         snapshot: snapshotFor(seat),
-        rounds: ROUNDS,
+        rounds: room.rule.rounds || ROUNDS,
+        rule: room.rule,
       });
     }
 
@@ -324,15 +419,34 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const seat = seatByToken(body.token || '');
       if (seat < 0) return json(res, 401, { error: '未入座' });
+      if (room.ended) return json(res, 409, { error: '房间已解散' });
       if (room.paused) return json(res, 409, { error: '有玩家掉线，等待重连' });
       if (!room.engine || room.engine.state.phase === 'finished') return json(res, 400, { error: '当前不能操作' });
       const ok = applyAction(body.action || {}, seat);
       return json(res, ok ? 200 : 400, { ok });
     }
 
+    if (url.pathname === '/api/rule' && req.method === 'POST') {
+      const body = await readBody(req);
+      const seat = seatByToken(body.token || '');
+      if (seat !== 0) return json(res, 403, { error: '只有房主能改模式' });
+      if (room.started && !room.over) return json(res, 400, { error: '已经开局了，不能改模式' });
+      const rule = body.rule && typeof body.rule === 'object' ? body.rule : {};
+      room.rule = {
+        ...room.rule,
+        rounds: [8, 16, 32].includes(Number(rule.rounds)) ? Number(rule.rounds) : room.rule.rounds,
+        withDragons: !!rule.withDragons,
+        addonEnabled: !!rule.addonEnabled,
+        baseShare: Math.max(1, Math.min(3, Number(rule.baseShare) || room.rule.baseShare || 1)),
+      };
+      room.version++;
+      return json(res, 200, { ok: true, rule: room.rule });
+    }
+
     if (url.pathname === '/api/start' && req.method === 'POST') {
       const body = await readBody(req);
       const seat = seatByToken(body.token || '');
+      if (room.ended) return json(res, 409, { error: '房间已解散' });
       if (seat !== 0) return json(res, 403, { error: '只有房主能开局' });
       if (room.started && !room.over) return json(res, 400, { error: '已经开局了' });
       startGame(body.rule || null);
@@ -343,6 +457,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const seat = seatByToken(body.token || '');
       if (seat < 0) return json(res, 401, { error: '未入座' });
+      if (room.ended) return json(res, 409, { error: '房间已解散' });
       if (room.paused) return json(res, 409, { error: '有玩家掉线，等待重连' });
       if (!room.engine) return json(res, 400, { error: '还没开局' });
       const s = room.engine.state;

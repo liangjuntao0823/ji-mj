@@ -1,5 +1,5 @@
 /* 局域网联机客户端：轮询服务器快照 + 提交动作 */
-import { G, initTable, renderAll, updateTimer, showToast, showResult, hideResult, backToHome, updateReadyBar, setRoomCode, showBoard, hideBoard, setPaused, setNetLatency, clearNetLatency } from './ui.js';
+import { G, initTable, renderAll, updateTimer, showToast, showResult, hideResult, backToHome, updateReadyBar, setRoomCode, showBoard, hideBoard, setPaused, setNetLatency, clearNetLatency, renderLobbySeats, renderLobbyRules, showLobbyRules, setLobbyRoomCode, normalizeLobbyRule, promptHostPassword, setLobbyStage, setLobbyRoomHeader, clearLobbyHeader } from './ui.js';
 import { label, SEAT_LABEL } from './tiles.js';
 
 const NET = {
@@ -16,6 +16,9 @@ const NET = {
   localTimer: null,
   resultKey: '',
   code: '',
+  hostName: '',
+  ended: false,
+  endedBy: '',
   nextReady: [false, false, false, false],
 };
 
@@ -23,11 +26,14 @@ const NET = {
  * B 模式填 https://jianli-majiang.pages.dev，跨网络也能入座。 */
 let BASE = '';
 try { BASE = (localStorage.getItem('jianli_server_base') || '').replace(/\/+$/, ''); } catch (e) {}
+try { NET.code = localStorage.getItem('jianli_room_code') || ''; } catch (e) {}
 
 const el = (id) => document.getElementById(id);
 
-function api(path, opts) {
-  return fetch(BASE + path, opts).then((r) => r.json());
+function api(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (NET.code) headers['X-Room-Code'] = NET.code;
+  return fetch(BASE + path, Object.assign({}, opts, { headers })).then((r) => r.json());
 }
 
 function clearToken() {
@@ -40,11 +46,24 @@ function clearToken() {
 
 /* ---------------- 入口 ---------------- */
 
+async function pushServerRule(rule) {
+  if (!NET.token || NET.seat !== 0 || NET.started) return;
+  try {
+    await api('/api/rule', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: NET.token, rule: normalizeLobbyRule(rule) }) });
+    pollOnce();
+  } catch (e) {}
+}
+
+window.addEventListener('jianli-lobby-rule', (e) => {
+  if (NET.token && NET.seat === 0 && !NET.started) pushServerRule(e.detail || {});
+});
+
 export function openLAN(serverBase, mode = 'join') {
   clearNetLatency();
   window.__jianliReconnect = reconnectSelf;
   NET.entryMode = mode === 'create' ? 'create' : 'join';
   window.__lobbyBack = exitLAN;
+  if (NET.entryMode !== 'create') NET.ended = false;
 
   if (typeof serverBase === 'string') {
     const next = serverBase.trim().replace(/\/+$/, '');
@@ -69,14 +88,24 @@ export function openLAN(serverBase, mode = 'join') {
   if (staleP2P) staleP2P.remove();
   const staleCode = el('p2p-code-show');
   if (staleCode) staleCode.remove();
-  el('lobby-name-row').style.display = NET.token ? 'none' : 'flex';
+  const create = NET.entryMode === 'create';
+  const token = !!NET.token;
+  setLobbyStage(token ? 'room' : (create ? 'create' : 'join'));
+  clearLobbyHeader();
+  el('lobby-name-row').style.display = token ? 'none' : (create ? 'flex' : '');
+  const codeRow = el('lobby-code-row');
+  if (codeRow) codeRow.classList.toggle('is-on', !token && !create);
+  const codeInput = el('lobby-code-input');
+  if (codeInput) {
+    codeInput.value = (!create && !token) ? (NET.code || '') : '';
+    codeInput.oninput = () => { codeInput.value = codeInput.value.replace(/[^0-9]/g, '').slice(0, 6); };
+  }
   const title = document.querySelector('.lobby-title');
   const sub = document.querySelector('.lobby-sub');
-  const create = NET.entryMode === 'create';
-  if (title) title.textContent = BASE ? (create ? '创建公网房间' : '加入公网房间') : (create ? '创建联机房间' : '加入联机房间');
+  if (title) title.textContent = token ? '联机房间' : (BASE ? (create ? '创建公网房间' : '加入公网房间') : (create ? '创建联机房间' : '加入联机房间'));
   if (sub) sub.textContent = BASE
-    ? (create ? '公网服务器 · 第一人自动当房主 · 开局后空位补机器人' : '公网服务器 · 输入名字，加入当前公共房间')
-    : (create ? '同一个 WiFi · 第一人当房主 · 开局后空位补机器人' : '同一个 WiFi · 输入名字，加入当前房间');
+    ? (create ? '公网服务器 · 第一人当房主 · 开局后空位补机器人' : '公网服务器 · 输入名字和房号，加入指定房间')
+    : (create ? '同一个 WiFi · 第一人当房主 · 开局后空位补机器人' : '同一个 WiFi · 输入名字和房号，加入指定房间');
   const joinBtn = el('lobby-join');
   if (joinBtn) joinBtn.textContent = create ? '创建房间' : '加入房间';
   const nameInput = el('lobby-name');
@@ -88,27 +117,57 @@ export function openLAN(serverBase, mode = 'join') {
 }
 
 el('lobby-join').addEventListener('click', async () => {
+  const create = NET.entryMode === 'create';
   const name = el('lobby-name').value.trim();
   if (!name) { el('lobby-name').focus(); return; }
+  let code = '';
+  if (!create) {
+    code = String((el('lobby-code-input') && el('lobby-code-input').value) || '').trim();
+    if (!/^\d{6}$/.test(code)) {
+      el('lobby-status').textContent = '先输入 6 位房号';
+      el('lobby-code-input') && el('lobby-code-input').focus();
+      return;
+    }
+  }
+  let password = '';
+  if (create) {
+    const passValue = await promptHostPassword();
+    if (!passValue) { el('lobby-status').textContent = ''; return; }
+    password = passValue;
+  }
   const btn = el('lobby-join');
-  const hint = NET.entryMode === 'create' ? '正在创建房间…' : '正在加入房间…';
+  const hint = create ? '正在创建房间…' : '正在加入房间…';
   if (btn) { btn.disabled = true; btn.dataset.label = btn.textContent; btn.textContent = hint; }
   el('lobby-status').textContent = hint;
   NET.name = name;
   localStorage.setItem('jianli_name', name);
+  if (code) { NET.code = code; localStorage.setItem('jianli_room_code', code); }
   try {
-    const r = await api('/api/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    const body = create
+      ? { name, password, rule: window.JIANLI_HOME_RULE || {} }
+      : { name, code };
+    const r = await api(create ? '/api/create' : '/api/join', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
     if (r.error) { el('lobby-status').textContent = r.error; return; }
+    if (r.code) { NET.code = String(r.code); localStorage.setItem('jianli_room_code', NET.code); }
     NET.token = r.token;
     NET.seat = r.seat;
+    if (create) NET.hostName = name;
     localStorage.setItem('jianli_token', r.token);
     localStorage.setItem('jianli_token_base', BASE);
     el('lobby-name-row').style.display = 'none';
+    const codeRow = el('lobby-code-row');
+    if (codeRow) codeRow.classList.remove('is-on');
+    setLobbyStage('room');
+    setLobbyRoomHeader({ code: NET.code, hostName: NET.hostName || name, rule: window.JIANLI_HOME_RULE || {}, showCopy: create });
+    const title = document.querySelector('.lobby-title');
+    if (title) title.textContent = '联机房间';
     startPolling();
   } catch (e) {
     el('lobby-status').textContent = '服务器没连上，稍后再试';
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label || (NET.entryMode === 'create' ? '创建房间' : '加入房间'); }
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label || (create ? '创建房间' : '加入房间'); }
   }
 });
 
@@ -156,12 +215,18 @@ async function pollOnce() {
     if (NET.inGame) setPaused([NET.name || '我'], true, { roomCode: NET.code, canRefresh: true, onRefresh: reconnectSelf });
     return;
   }
+  if (r && r.code) {
+    NET.code = String(r.code);
+    localStorage.setItem('jianli_room_code', NET.code);
+  }
+  if (r && r.ended) { handleRoomEnded(r); return; }
   if (r.error) {
-    const dissolved = /解散/.test(r.error);
+    const dissolved = /解散|房间已/.test(r.error);
     NET.token = null;
     localStorage.removeItem('jianli_token');
     el('lobby-status').textContent = dissolved ? r.error : '座位已失效，请重新输入名字加入';
-    el('lobby-name-row').style.display = 'flex';
+    el('lobby-name-row').style.display = NET.entryMode === 'create' ? 'flex' : '';
+    setLobbyStage(NET.entryMode === 'create' ? 'create' : 'join');
     stopPolling();
     if (dissolved) {
       showToast(r.error);
@@ -209,18 +274,9 @@ function wrapSnapshot(snap) {
 
 function showCode(code) {
   if (!code) return;
-  NET.code = code;
-  let box = el('p2p-code-show');
-  if (!box) {
-    box = document.createElement('div');
-    box.id = 'p2p-code-show';
-    box.className = 'hidden';
-    const sub = document.querySelector('.lobby-sub');
-    if (sub && sub.parentElement) sub.parentElement.insertBefore(box, sub.nextSibling);
-    else return;
-  }
-  box.classList.remove('hidden');
-  box.innerHTML = `<div class="p2p-code-label">房号</div><div class="p2p-code">${code}</div>`;
+  NET.code = String(code);
+  try { localStorage.setItem('jianli_room_code', NET.code); } catch (e) {}
+  setLobbyRoomCode(NET.code);
 }
 
 /* ---------------- 房间等待 ---------------- */
@@ -241,18 +297,24 @@ async function dissolveRoom() {
 
 function renderLobby(r) {
   showCode(r.code);
-  el('lobby-name-row').style.display = NET.token ? 'none' : 'flex';
-  el('lobby-seats').style.display = 'block';
-  const box = el('lobby-seats');
-  box.innerHTML = '';
+  el('lobby-name-row').style.display = NET.token ? 'none' : (NET.entryMode === 'create' ? 'flex' : '');
+  const codeRow = el('lobby-code-row');
+  if (codeRow) codeRow.classList.remove('is-on');
+  setLobbyStage('room');
   const seats = r.seats || [];
-  const names = ['东（房主）', '南', '西', '北'];
-  for (let i = 0; i < 4; i++) {
-    const p = seats[i];
-    const row = document.createElement('div');
-    row.className = 'seat-row' + (p ? ' filled' : '') + (i === NET.seat ? ' me' : '');
-    row.textContent = `${names[i]}   ${p ? p.name + (p.isBot ? '（机器人）' : '') : '空位'}`;
-    box.append(row);
+  NET.hostName = (seats[0] && seats[0].name) || NET.hostName || NET.name;
+  renderLobbySeats({ players: seats, hostOnly: false, mySeat: NET.seat });
+  const hostRule = NET.seat === 0 && window.JIANLI_HOME_RULE
+    ? normalizeLobbyRule(window.JIANLI_HOME_RULE)
+    : normalizeLobbyRule(r.rule || window.JIANLI_HOME_RULE || {});
+  setLobbyRoomHeader({ code: r.code, hostName: NET.hostName, rule: hostRule, showCopy: NET.seat === 0 });
+  renderLobbyRules(hostRule, { editable: NET.seat === 0 });
+  showLobbyRules(true);
+
+  if (NET.token) {
+    if (r.started) el('lobby-status').textContent = '对局进行中…';
+    else if (NET.seat === 0) el('lobby-status').textContent = `等待玩家加入（${seats.length}/4），空位开局会补机器人`;
+    else el('lobby-status').textContent = '已入座，等房主开始对局…';
   }
 
   const actions = el('lobby-actions');
@@ -275,7 +337,7 @@ function renderLobby(r) {
     } else {
       const t = document.createElement('div');
       t.style.cssText = 'color: rgba(243,236,216,.6); font-size: 14px;';
-      t.textContent = '等待房主开始对局…';
+      t.textContent = '房主设置模式，你只能查看。等待房主开始对局…';
       actions.append(t);
     }
     if (NET.seat === 0) {
@@ -287,6 +349,7 @@ function renderLobby(r) {
     }
   }
 }
+
 
 /* ---------------- 进入牌桌 ---------------- */
 
@@ -303,7 +366,7 @@ function enterGame() {
     onDiscard: (tile) => send({ type: 'discard', tile }),
     onAct: (a) => send(a),
     onNext: () => nextHand(),
-    onExit: () => exitLAN(),
+    onExit: () => quitRoom(),
     canNewMatch: () => !!(NET.snap && NET.snap.over),
     newMatchClicks: () => (NET.snap && NET.snap.newMatchCount) || 0,
     newMatchTotal: () => (NET.snap && NET.snap.newMatchNeed) || 4,
@@ -344,9 +407,9 @@ async function reconnectSelf() {
       return;
     }
   } catch (e) {}
-  // token 失效时，用保存的名字重新进同一个公网房间
+  // token 失效时，用保存的名字 + 房号重新进同一个公网房间
   try {
-    const rr = await api('/api/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: NET.name || localStorage.getItem('jianli_name') || '我' }) });
+    const rr = await api('/api/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: NET.name || localStorage.getItem('jianli_name') || '我', code: NET.code }) });
     if (!rr.error) {
       NET.token = rr.token; NET.seat = rr.seat;
       localStorage.setItem('jianli_token', rr.token);
@@ -362,17 +425,59 @@ async function reconnectSelf() {
 }
 window.__jianliReconnect = reconnectSelf;
 
+function handleRoomEnded(r) {
+  if (NET.ended) return;
+  NET.ended = true;
+  NET.endedBy = String((r && r.endedBy) || '房主');
+  stopPolling();
+  setPaused([], false);
+  hideResult();
+  if (r && r.snapshot) {
+    NET.snap = wrapSnapshot(r.snapshot);
+    if (NET.inGame) renderAll();
+  }
+  if (NET.inGame && NET.snap) {
+    showBoard(`${NET.endedBy}退出了对局，房间已解散`, { ended: true });
+    window.__roomEndedExit = () => { hideBoard(); exitLAN(); };
+  } else {
+    showToast(`${NET.endedBy}退出了对局，房间已解散`);
+    exitLAN();
+  }
+}
+
+async function quitRoom() {
+  if (NET.token && BASE) {
+    try { await api('/api/quit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: NET.token }) }); } catch (e) {}
+  }
+  exitLAN();
+}
+
 function exitLAN() {
   setRoomCode(null);
+  clearLobbyHeader();
+  setLobbyStage('create');
+  const codeRow = el('lobby-code-row');
+  if (codeRow) codeRow.classList.remove('is-on');
+  showLobbyRules(false);
   clearNetLatency();
   stopPolling();
   NET.inGame = false;
   NET.snap = null;
   NET.version = -1;
   NET.lastPhase = '';
+  NET.ended = false;
+  NET.endedBy = '';
+  NET.code = '';
+  NET.hostName = '';
   clearToken();
-  try { localStorage.removeItem('jianli_token'); localStorage.removeItem('jianli_token_base'); } catch (e) {}
+  try {
+    localStorage.removeItem('jianli_token');
+    localStorage.removeItem('jianli_token_base');
+    localStorage.removeItem('jianli_room_code');
+  } catch (e) {}
   hideResult();
+  hideBoard();
+  window.__roomEndedExit = null;
   backToHome();
   el('lobby').classList.remove('show');
 }

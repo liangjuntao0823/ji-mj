@@ -37,8 +37,27 @@ const AVATARS = [
   'assets/img/avatar-li.jpg',
   'assets/img/avatar-mei.jpg',
   'assets/img/avatar-qiang.jpg',
+  'assets/img/avatar-akai.jpg',
+  'assets/img/avatar-wangjie.jpg',
+  'assets/img/avatar-xiaoyu.jpg',
+  'assets/img/avatar-laozhou.jpg',
+  'assets/img/avatar-afeng.jpg',
+  'assets/img/avatar-xiaoya.jpg',
 ];
-const AVATAR_BY_NAME = { '涛': 0, '老李': 1, '小美': 2, '阿强': 3 };
+const AVATAR_BY_NAME = {
+  '涛': 0, '老李': 1, '小美': 2, '阿强': 3,
+  '阿凯': 4, '王姐': 5, '小雨': 6, '老周': 7, '阿峰': 8, '小雅': 9,
+};
+function avatarIndexFor(name, seat = 0) {
+  const key = String(name == null ? '' : name).trim();
+  if (Object.prototype.hasOwnProperty.call(AVATAR_BY_NAME, key)) return AVATAR_BY_NAME[key];
+  let hash = 17;
+  for (let i = 0; i < key.length; i++) hash = ((hash << 5) + hash + key.charCodeAt(i)) >>> 0;
+  return hash % AVATARS.length;
+}
+export function avatarSrcFor(name, seat = 0) {
+  return AVATARS[avatarIndexFor(name, seat)];
+}
 const MODE_TAG = { single: '单机对局', lan: '局域网联机', net: '公网联机', p2p: '手机联机' };
 const REASON = { selfDraw: '自摸', pointGang: '明杠', concealedGang: '暗杠', addedGang: '回头笑', redGang: '油杠' };
 const UI = {
@@ -53,6 +72,9 @@ const UI = {
   toastTimer: null,
   result: null,
   boardOpen: false,
+  boardNote: '',
+  boardEnded: false,
+  lobbyShare: null,
   paused: false,
   lock: false,
   roomCode: '',
@@ -274,7 +296,7 @@ function drawTable(s) {
     play.textContent = parts.join(' · ');
   }
   if (G.mode !== 'single') {
-    const inline = s.code ? String(s.code) : ((D.querySelector('#p2p-code-show .p2p-code') || {}).textContent || '');
+    const inline = s.code ? String(s.code) : ((D.querySelector('#lobby-room-code') || {}).textContent || (D.querySelector('#p2p-code-show .p2p-code') || {}).textContent || '');
     setRoomCodeState(inline.trim());
   }
   /* 四家板块 */
@@ -352,11 +374,11 @@ function drawTable(s) {
 function plateHtml(s, seat, p) {
   const isMe = seat === UI.me;
   const name = p.name || WIND[seat] + '家';
-  const idx = AVATAR_BY_NAME[p.name] != null ? AVATAR_BY_NAME[p.name] : seat % 4;
+  const src = avatarSrcFor(name, seat);
   const score = p.score || 0;
   return `
     <div class="av">
-      <img src="${AVATARS[idx]}" alt="${esc(name)}" draggable="false">
+      <img src="${src}" alt="${esc(name)}" draggable="false">
       <div class="ring"></div>
       <div class="wind">${esc(WIND[seat] || '')}</div>
       <div class="dealer">庄</div>
@@ -1143,6 +1165,209 @@ export function setRoomCode(code) {
   setRoomCodeState(UI.roomCode);
 }
 
+/* 联机大厅：房号徽标 / 两列座位 / 本桌模式。net.js 与 p2p.js 共用。 */
+export function setLobbyRoomCode(code) {
+  const badge = $('lobby-room-badge');
+  const val = $('lobby-room-code');
+  const c = String(code || '').trim();
+  if (badge) badge.classList.toggle('is-on', !!c);
+  if (val) val.textContent = c || '------';
+  const inline = D.querySelector('#p2p-code-show .p2p-code');
+  if (inline) inline.textContent = c;
+  if (c) setRoomCode(c);
+}
+
+/* 'create'：创建前单列；'join'：加入前单列；'room'：进房后的左右分栏 */
+export function setLobbyStage(stage = 'room') {
+  const card = D.querySelector('.lobby-card');
+  if (!card) return;
+  card.classList.toggle('is-create-entry', stage === 'create');
+  card.classList.toggle('is-join-entry', stage === 'join');
+}
+
+function lobbyCopyText() {
+  const info = UI.lobbyShare;
+  if (!info || !info.code) return '';
+  const r = normalizeLobbyRule(info.rule);
+  const host = String(info.hostName || '涛').trim() || '涛';
+  const mode = `倒${r.baseShare}，${r.withDragons ? '中发白' : '红中'}，${r.rounds}局，${r.addonEnabled ? '自由加增' : '不加增'}`;
+  return `🀄️是兄弟就来大战300回合，${host}已开好生死局👋\n\n🏠房号：${info.code}\n🎮模式：${mode}\n\n怕死别来🫵\n噶试👏`;
+}
+
+async function copyLobbyInfo() {
+  const text = lobbyCopyText();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('房号信息已复制');
+    return;
+  } catch (e) {}
+  const area = D.createElement('textarea');
+  area.value = text;
+  area.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+  D.body.appendChild(area);
+  area.focus();
+  area.select();
+  try {
+    const ok = D.execCommand && D.execCommand('copy');
+    showToast(ok ? '房号信息已复制' : '复制失败，请手动复制');
+  } catch (e) {
+    showToast('复制失败，请手动复制');
+  } finally {
+    area.remove();
+  }
+}
+
+/* 房间创建后：顶部说明换成居中的复制房号按钮 */
+export function setLobbyRoomHeader(opts = {}) {
+  const c = String(opts.code || '').trim();
+  const head = D.querySelector('.lobby-head');
+  const copy = $('lobby-copy');
+  if (!c) {
+    UI.lobbyShare = null;
+    if (head) head.classList.remove('is-room');
+    if (copy) copy.classList.remove('is-on');
+    setLobbyRoomCode(null);
+    return;
+  }
+  setLobbyRoomCode(c);
+  UI.lobbyShare = {
+    code: c,
+    hostName: String(opts.hostName || '').trim() || '涛',
+    rule: normalizeLobbyRule(opts.rule || {}),
+  };
+  if (head) head.classList.add('is-room');
+  if (copy) copy.classList.toggle('is-on', opts.showCopy !== false);
+}
+
+export function clearLobbyHeader() {
+  setLobbyRoomHeader({ code: null });
+}
+
+/* 房主验证：密码只按本机当前分钟计算，不在界面留任何提示。 */
+function pad2(n) { return String(n).padStart(2, '0'); }
+function currentHostPassword(now = new Date()) {
+  return `${pad2(now.getHours())}${pad2(now.getMinutes())}`;
+}
+let hostPassResolve = null;
+function finishHostPass(ok) {
+  const modal = $('host-pass-modal');
+  if (modal) modal.classList.remove('show');
+  const fn = hostPassResolve;
+  hostPassResolve = null;
+  if (fn) fn(ok);
+}
+function submitHostPass() {
+  const input = $('host-pass-input');
+  const error = $('host-pass-error');
+  const value = String((input && input.value) || '').trim();
+  if (value && value === currentHostPassword()) {
+    finishHostPass(value);
+    return;
+  }
+  if (error) error.textContent = '验证没通过';
+  if (input) { input.value = ''; input.focus(); }
+}
+export function promptHostPassword() {
+  const modal = $('host-pass-modal');
+  const input = $('host-pass-input');
+  const error = $('host-pass-error');
+  if (!modal || !input) return Promise.resolve(false);
+  if (hostPassResolve) return Promise.resolve(false);
+  error && (error.textContent = '');
+  input.value = '';
+  modal.classList.add('show');
+  setTimeout(() => { try { input.focus(); } catch (e) {} }, 30);
+  return new Promise((resolve) => { hostPassResolve = resolve; });
+}
+
+let lobbySeatsSig = '';
+export function renderLobbySeats(opts = {}) {
+  const box = $('lobby-seats');
+  if (!box) return;
+  const players = Array.isArray(opts.players) ? opts.players : [];
+  const hostOnly = !!opts.hostOnly;
+  const mySeat = Number.isInteger(opts.mySeat) ? opts.mySeat : -1;
+  const sig = JSON.stringify([
+    hostOnly, mySeat,
+    [0, 1, 2, 3].map((i) => {
+      const p = players[i];
+      return p ? [p.name || '', !!p.isBot, p.online !== false] : null;
+    }),
+  ]);
+  if (box.classList.contains('is-on') && sig === lobbySeatsSig) return;
+  lobbySeatsSig = sig;
+  const rows = [];
+  for (let i = 0; i < 4; i++) {
+    const p = players[i];
+    const wind = WIND[i] || '';
+    const filled = !!p;
+    const mine = filled && i === mySeat;
+    const isHost = filled && i === 0 && !hostOnly;
+    const name = filled ? (p.name || '玩家' + (i + 1)) : '空位';
+    const role = hostOnly ? wind : (i === 0 ? wind + ' · 房主' : wind);
+    const state = filled ? (p.isBot ? '机器人' : (p.online === false ? '暂时掉线' : '已入座')) : '等待加入';
+    const avatar = filled
+      ? `<img src="${avatarSrcFor(name, i)}" alt="${esc(name)}" draggable="false">`
+      : '';
+    rows.push(`
+      <div class="lobby-seat${filled ? '' : ' is-empty'}${mine ? ' is-me' : ''}${isHost ? ' is-host' : ''}${filled && p.online === false ? ' is-offline' : ''}">
+        <div class="ls-av${filled ? '' : ' is-empty'}">${avatar}<span class="ls-wind">${esc(wind)}</span></div>
+        <div class="ls-info">
+          <div class="ls-role">${esc(role)}${mine ? '<em>我</em>' : ''}</div>
+          <div class="ls-name">${esc(name)}</div>
+          <div class="ls-state">${esc(state)}</div>
+        </div>
+      </div>`);
+  }
+  box.innerHTML = rows.join('');
+  box.classList.add('is-on');
+}
+
+export function normalizeLobbyRule(rule = {}) {
+  const src = rule && typeof rule === 'object' ? rule : {};
+  return {
+    rounds: [8, 16, 32].includes(Number(src.rounds)) ? Number(src.rounds) : 8,
+    withDragons: !!src.withDragons,
+    addonEnabled: !!src.addonEnabled,
+    baseShare: Math.max(1, Math.min(3, Number(src.baseShare) || 1)),
+  };
+}
+
+let lobbyRulesSig = '';
+export function renderLobbyRules(rule = {}, opts = {}) {
+  const panel = $('lobby-rules');
+  const grid = $('lobby-rules-grid');
+  const summary = $('lobby-rules-summary');
+  if (!panel || !grid || !summary) return;
+  const r = normalizeLobbyRule(rule);
+  const editable = opts.editable !== false;
+  const sig = JSON.stringify([r, editable]);
+  if (panel.classList.contains('is-on') && sig === lobbyRulesSig) return;
+  lobbyRulesSig = sig;
+  const mode = r.withDragons ? '中发白' : '红中';
+  summary.textContent = `${r.rounds} 局 · ${mode} · ${r.addonEnabled ? '自由加增' : '不加增'} · 围增倒${r.baseShare}`;
+  const seg = (labelText, group, items, current) => `
+    <div class="lobby-rule-item">
+      <span>${labelText}</span>
+      <div class="lr-seg">${items.map(([value, text]) => `<button type="button" data-lr-group="${group}" data-lr-value="${value}" class="${String(value) === String(current) ? 'is-on' : ''}"${editable ? '' : ' disabled aria-disabled="true"'}>${text}</button>`).join('')}</div>
+    </div>`;
+  grid.innerHTML = [
+    seg('局数', 'rounds', [[8, '8局'], [16, '16局'], [32, '32局']], r.rounds),
+    seg('牌组', 'deck', [['red', '红中'], ['dragons', '中发白']], r.withDragons ? 'dragons' : 'red'),
+    seg('加增', 'addon', [[0, '不加增'], [1, '自由加增']], r.addonEnabled ? 1 : 0),
+    seg('围增', 'share', [[1, '倒1'], [2, '倒2'], [3, '倒3']], r.baseShare),
+  ].join('');
+  panel.classList.toggle('is-readonly', !editable);
+  const owner = $('lobby-rules-owner');
+  if (owner) owner.textContent = editable ? '' : '房主设置';
+}
+
+export function showLobbyRules(show) {
+  const panel = $('lobby-rules');
+  if (panel) panel.classList.toggle('is-on', !!show);
+}
+
 function setRoomCodeState(code) {
   const chip = $('room-chip');
   const val = $('room-code');
@@ -1151,8 +1376,10 @@ function setRoomCodeState(code) {
   if (code && val) val.textContent = code;
 }
 
-export function showBoard() {
+export function showBoard(note = '', opts = {}) {
   UI.boardOpen = true;
+  UI.boardNote = String(note || '');
+  UI.boardEnded = !!opts.ended;
   renderScoreboard();
   const b = $('board');
   if (b) b.classList.add('show');
@@ -1181,6 +1408,7 @@ export function renderScoreboard() {
     <div class="board-card">
       <div class="board-title">记 分 板</div>
       <div class="board-sub">累计总分 · 第 ${s.roundIndex || 1}/${G.totalRounds || 8} 局 · ${MODE_TAG[G.mode] || ''}</div>
+      ${UI.boardNote ? `<div class="board-note">${esc(UI.boardNote)}</div>` : ''}
       <div class="board-rows">
         ${rows.map((p, i) => `
           <div class="board-row ${p.seat === UI.me ? 'is-me' : ''}">
@@ -1191,11 +1419,14 @@ export function renderScoreboard() {
             <span class="bscore ${(p.score || 0) < 0 ? 'neg' : ''}">${num(p.score || 0)}</span>
           </div>`).join('')}
       </div>
-      <div class="board-actions"><button class="big-btn ghost" id="board-close">收 起</button></div>
+      <div class="board-actions"><button class="big-btn ghost" id="board-close">${UI.boardEnded ? '返回首页' : '收 起'}</button></div>
     </div>`;
   const close = box.querySelector('#board-close');
-  if (close) close.addEventListener('click', hideBoard);
-  box.onclick = (e) => { if (e.target === box) hideBoard(); };
+  if (close) close.addEventListener('click', () => {
+    if (UI.boardEnded && typeof window.__roomEndedExit === 'function') { window.__roomEndedExit(); return; }
+    hideBoard();
+  });
+  box.onclick = (e) => { if (e.target === box && !UI.boardEnded) hideBoard(); };
 }
 
 /* ---------------- 掉线 ---------------- */
@@ -1710,8 +1941,28 @@ function bindAll() {
   const tb = $('btn-board'); if (tb) tb.addEventListener('click', () => { sfx('tap'); toggleBoard(); });
   const ex = $('btn-exit'); if (ex) ex.addEventListener('click', () => {
     sfx('tap');
+    const online = G.mode === 'net' || G.mode === 'lan' || G.mode === 'p2p';
+    const msg = online
+      ? '退出对局？\n退出后本局结束、房间自动解散，其他玩家会收到记分板和退出提示。'
+      : '退出对局？';
+    if (!window.confirm(msg)) return;
     if (G.onExit) G.onExit(); else backToHome();
   });
+
+  const lobbyCopy = $('lobby-copy');
+  if (lobbyCopy) lobbyCopy.addEventListener('click', () => { sfx('tap'); copyLobbyInfo(); });
+
+  const hpOk = $('host-pass-ok');
+  if (hpOk) hpOk.addEventListener('click', submitHostPass);
+  const hpCancel = $('host-pass-cancel');
+  if (hpCancel) hpCancel.addEventListener('click', () => finishHostPass(false));
+  const hpInput = $('host-pass-input');
+  if (hpInput) hpInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); submitHostPass(); }
+    else if (e.key === 'Escape') { e.preventDefault(); finishHostPass(false); }
+  });
+  const hpModal = $('host-pass-modal');
+  if (hpModal) hpModal.addEventListener('click', (e) => { if (e.target === hpModal) finishHostPass(false); });
 
   const hand = $('my-hand');
   if (hand) hand.addEventListener('click', (e) => {
@@ -1751,6 +2002,7 @@ function bindAll() {
     if (e.key === 'Escape') {
       const rm = $('rules-modal'); if (rm) rm.classList.remove('show');
       const cm = $('changelog-modal'); if (cm) cm.classList.remove('show');
+      if (hostPassResolve) finishHostPass(false);
       if (UI.boardOpen) hideBoard();
     }
   });

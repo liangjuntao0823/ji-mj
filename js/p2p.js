@@ -3,7 +3,7 @@
  */
 import { Engine, DEFAULT_RULE } from './engine.js';
 import { nextAction, timeoutAction } from './bot.js';
-import { initTable, renderAll, updateTimer, showResult, hideResult, backToHome, updateReadyBar, setRoomCode, setPaused, showBoard, hideBoard, setNetLatency, clearNetLatency } from './ui.js';
+import { initTable, renderAll, updateTimer, showResult, hideResult, backToHome, updateReadyBar, setRoomCode, setPaused, showBoard, hideBoard, setNetLatency, clearNetLatency, renderLobbySeats, renderLobbyRules, showLobbyRules, setLobbyRoomCode, normalizeLobbyRule, promptHostPassword, setLobbyStage, setLobbyRoomHeader, clearLobbyHeader } from './ui.js';
 
 const ROUNDS = 8;
 const HOST_PREFIX = 'jianli-mj-';
@@ -76,6 +76,7 @@ const P = {
   engine: null,
   started: false,
   over: false,
+  ended: false,
   version: 0,
   deadline: null,
   lastKey: '',
@@ -99,6 +100,7 @@ const P = {
   reconnectTry: 0,
   latencyTimer: null,
   rule: { ...DEFAULT_RULE, rounds: ROUNDS },
+  hostRule: null,
 };
 
 const el = (id) => document.getElementById(id);
@@ -113,6 +115,10 @@ function makeCode() {
 function buildEntryUI(mode = 'create') {
   const isJoin = mode === 'join';
   el('lobby').classList.add('show');
+  setLobbyStage(isJoin ? 'join' : 'create');
+  clearLobbyHeader();
+  const codeRow = el('lobby-code-row');
+  if (codeRow) codeRow.classList.remove('is-on');
   el('lobby-name-row').style.display = 'none';
   document.querySelector('.lobby-title').textContent = isJoin ? '加入房间' : (P.hostOnly ? '电脑开房' : '创建房间');
   document.querySelector('.lobby-sub').textContent = isJoin
@@ -123,8 +129,8 @@ function buildEntryUI(mode = 'create') {
   if (!box) {
     box = document.createElement('div');
     box.id = 'p2p-box';
-    const card = document.querySelector('.lobby-card');
-    card.insertBefore(box, el('lobby-seats'));
+    const seats = el('lobby-seats');
+    if (seats && seats.parentNode) seats.parentNode.insertBefore(box, seats);
   }
   box.innerHTML = `
     <div id="p2p-entry">
@@ -139,6 +145,12 @@ function buildEntryUI(mode = 'create') {
     </div>
     <div id="p2p-code-show" class="hidden"></div>
   `;
+  if (!isJoin) {
+    renderLobbyRules(P.rule, { editable: true });
+    showLobbyRules(true);
+  } else {
+    showLobbyRules(false);
+  }
   const nameInput = el('p2p-name');
   if (nameInput) nameInput.value = P.name || localStorage.getItem('jianli_name') || '';
   const createBtn = el('p2p-create');
@@ -177,11 +189,13 @@ async function createRoom() {
     name = readName();
     if (!name) return;
   }
+  const passOk = await promptHostPassword();
+  if (!passOk) { status(''); return; }
   await ensureIce();
   P.role = 'host';
   P.seat = hostOnly ? -1 : 0;
   const cfg = window.JIANLI_HOME_RULE || {};
-  P.rule = { ...DEFAULT_RULE, rounds: [8, 16, 32].includes(Number(cfg.rounds)) ? Number(cfg.rounds) : ROUNDS, withDragons: !!cfg.withDragons, addonEnabled: !!cfg.addonEnabled, baseShare: Math.max(1, Math.min(3, Number(cfg.baseShare) || 1)) };
+  P.rule = { ...DEFAULT_RULE, ...normalizeLobbyRule(cfg) };
   P.players = hostOnly ? [] : [{ name, isBot: false, online: true }];
   P.version++;
 
@@ -192,6 +206,8 @@ async function createRoom() {
     peer.on('open', () => {
       setEntryVisible(false);
       showRoomCode();
+      renderLobbyRules(P.rule, { editable: true });
+      showLobbyRules(true);
       renderSeats();
       renderHostActions();
       status('把房号发给其他三个人，他们打开同一个页面输入房号');
@@ -208,27 +224,19 @@ async function createRoom() {
 }
 
 function showRoomCode() {
-  const box = el('p2p-code-show');
-  if (!box) return;
-  box.classList.remove('hidden');
-  box.innerHTML = `<div class="p2p-code-label">房号</div><div class="p2p-code">${P.code}</div>`;
-  setRoomCode(P.code);
-  document.querySelector('.lobby-sub').textContent = '让其他人打开本页面 → 输入这个房号 → 加入';
+  setLobbyStage('room');
+  const hostName = P.hostOnly ? '电脑主机' : ((P.players && P.players[0] && P.players[0].name) || P.name || '涛');
+  setLobbyRoomHeader({ code: P.code, hostName, rule: P.hostRule || P.rule, showCopy: P.role === 'host' || P.hostOnly });
+  const codeRow = el('lobby-code-row');
+  if (codeRow) codeRow.classList.remove('is-on');
 }
 
 function renderSeats() {
-  const box = el('lobby-seats');
-  box.style.display = 'block';
-  box.innerHTML = '';
-  const names = P.hostOnly ? ['东', '南', '西', '北'] : ['东（房主）', '南', '西', '北'];
-  for (let i = 0; i < 4; i++) {
-    const p = P.players[i];
-    const row = document.createElement('div');
-    const mine = !P.hostOnly && (P.role === 'host' ? i === 0 : i === P.seat);
-    row.className = 'seat-row' + (p ? ' filled' : '') + (mine ? ' me' : '');
-    row.textContent = `${names[i]}   ${p ? p.name + (p.isBot ? '（机器人）' : '') : '空位'}`;
-    box.append(row);
-  }
+  renderLobbySeats({
+    players: P.players,
+    hostOnly: P.hostOnly,
+    mySeat: P.hostOnly ? -1 : (P.role === 'host' ? 0 : P.seat),
+  });
 }
 
 function renderHostActions() {
@@ -254,7 +262,7 @@ function pushToGuest(conn, seat) {
   const send = () => {
     if (P.role !== 'host' || !conn || !conn.open) return;
     try {
-      conn.send({ t: 'hello', seat, started: P.started, over: P.over, code: P.code, players: P.players, hostOnly: P.hostOnly });
+      conn.send({ t: 'hello', seat, started: P.started, over: P.over, code: P.code, players: P.players, hostOnly: P.hostOnly, rule: P.rule });
       conn.send({ t: 'state', seat, started: P.started, over: P.over, version: P.version, snap: snapshotFor(seat) });
     } catch {}
   };
@@ -354,7 +362,7 @@ function onGuest(conn) {
 function hostBroadcastLobby() {
   const players = P.players.map((p) => ({ name: p && p.name, isBot: !!(p && p.isBot), online: !!(p && p.online) }));
   for (const g of P.conns) {
-    try { if (g.conn.open) g.conn.send({ t: 'lobby', code: P.code, players, hostOnly: P.hostOnly }); } catch {}
+    try { if (g.conn.open) g.conn.send({ t: 'lobby', code: P.code, players, hostOnly: P.hostOnly, rule: P.rule }); } catch {}
   }
 }
 
@@ -373,6 +381,15 @@ function hostMsg(conn, seat, msg) {
   }
   if (msg.t === 'gping') {
     try { if (conn.open) conn.send({ t: 'gpong', ts: msg.ts }); } catch (e) {}
+    return;
+  }
+  if (msg.t === 'quit') {
+    const who = String(msg.by || (P.players[seat] && P.players[seat].name) || '玩家');
+    for (const c of P.conns) {
+      if (c.conn === conn) continue;
+      try { c.conn.send({ t: 'quit', by: who }); } catch (e) {}
+    }
+    showP2PEnded(who);
     return;
   }
   if (msg.type === 'act' || msg.t === 'act') {
@@ -551,6 +568,7 @@ function trackStatsP() {
 }
 
 function hostTick() {
+  if (P.ended) return;
   const now = Date.now();
   heartbeatGuests(now);
   if (!P.engine) return;
@@ -644,6 +662,7 @@ function snapshotFor(seat) {
   snap.canStart = seat === 0 && !P.started;
   snap.canNext = !!(P.engine && P.engine.state.phase === 'finished');
   snap.rounds = P.rule.rounds || ROUNDS;
+  snap.rule = { rounds: P.rule.rounds, withDragons: P.rule.withDragons, addonEnabled: P.rule.addonEnabled, baseShare: P.rule.baseShare };
   snap.code = P.code;
   snap.nextReady = (P.nextReady || [false, false, false, false]).slice();
   snap.paused = P.players.some((p) => p && !p.isBot && !p.online);
@@ -776,7 +795,7 @@ function guestConnect() {
 
 /* 自动重连：逐步拉长间隔，最多 20 次（约一分钟） */
 function guestRetry(reason) {
-  if (P.role !== 'guest') return;
+  if (P.role !== 'guest' || P.ended) return;
   if (P.reconnectTimer) return;
   P.reconnectTry = (P.reconnectTry || 0) + 1;
   if (P.reconnectTry > 20) {
@@ -810,6 +829,10 @@ window.__jianliReconnect = guestReconnectNow;
 function guestMsg(msg) {
   if (!msg || typeof msg !== 'object') return;
   P.lastHostMsgAt = Date.now();
+  if (msg.t === 'quit') {
+    showP2PEnded(String(msg.by || '房主'));
+    return;
+  }
   if (msg.t === 'ping') {
     try { if (P.hostConn && P.hostConn.open) P.hostConn.send({ t: 'pong', ts: msg.ts }); } catch (e) {}
     return;
@@ -831,6 +854,7 @@ function guestMsg(msg) {
     P.seatReady = true;
     P.code = msg.code || P.code;
     if (typeof msg.hostOnly === 'boolean') P.hostOnly = msg.hostOnly;
+    if (msg.rule) P.hostRule = normalizeLobbyRule(msg.rule);
     if (Array.isArray(msg.players)) { P.players = msg.players; P.lobbySig = ''; }
     if (!P.inGame) { setEntryVisible(false); showRoomCode(); renderGuestSeats(); }
     return;
@@ -839,6 +863,7 @@ function guestMsg(msg) {
     if (Array.isArray(msg.players)) { P.players = msg.players; P.lobbySig = ''; }
     if (msg.code) P.code = msg.code;
     if (typeof msg.hostOnly === 'boolean') P.hostOnly = msg.hostOnly;
+    if (msg.rule) P.hostRule = normalizeLobbyRule(msg.rule);
     if (!P.inGame) { showRoomCode(); renderGuestSeats(); }
     return;
   }
@@ -849,6 +874,7 @@ function guestMsg(msg) {
     const ver = typeof msg.version === 'number' ? msg.version : -1;
     const changed = ver !== P.lastStateVersion || snap.phase !== P.lastPhase;
     P.lastStateVersion = ver;
+    if (snap.rule) P.hostRule = normalizeLobbyRule(snap.rule);
     P.snap = wrapSnapshot(snap);
     /* 用房主的下发时刻校准本机时钟，让倒计时在两边同时走完 */
     if (typeof snap.srvNow === 'number') {
@@ -879,24 +905,18 @@ function wrapSnapshot(snap) {
 }
 
 function renderGuestSeats() {
+  setLobbyStage('room');
   const seats = (P.players && P.players.length) ? P.players
     : ((P.snap && P.snap.seats) || []);
-  const box = el('lobby-seats');
-  box.style.display = 'block';
-  box.innerHTML = '';
-  const names = P.hostOnly ? ['东', '南', '西', '北'] : ['东（房主）', '南', '西', '北'];
-  for (let i = 0; i < 4; i++) {
-    const p = seats[i];
-    const row = document.createElement('div');
-    row.className = 'seat-row' + (p ? ' filled' : '') + (i === P.seat ? ' me' : '');
-    row.textContent = `${names[i]}   ${p ? p.name + (p.isBot ? '（机器人）' : '') : '空位'}`;
-    box.append(row);
-  }
-  document.querySelector('.lobby-sub').textContent = `房号 ${P.code} · 等${P.hostOnly ? '电脑' : '房主'}开始`;
+  const hostName = (seats[0] && seats[0].name) || '房主';
+  setLobbyRoomHeader({ code: P.code, hostName, rule: P.hostRule || P.rule, showCopy: false });
+  renderLobbySeats({ players: seats, hostOnly: P.hostOnly, mySeat: P.seat });
+  renderLobbyRules(P.hostRule || P.rule, { editable: false });
+  showLobbyRules(true);
   el('lobby-actions').innerHTML = '';
   const tip = document.createElement('div');
   tip.style.cssText = 'color: rgba(243,236,216,.6); font-size: 14px; margin-top: 10px;';
-  tip.textContent = '等待房主开始对局…';
+  tip.textContent = '房主设置模式，你只能查看。等待房主开始对局…';
   el('lobby-actions').append(tip);
 }
 
@@ -920,7 +940,7 @@ function enterGame() {
     onDiscard: (tile) => send({ type: 'discard', tile }),
     onAct: (a) => send(a),
     onNext: () => nextHand(),
-    onExit: () => exitP2P(),
+    onExit: () => quitP2P(),
     canNewMatch: () => !!(P.snap && P.snap.seriesOver),
     newMatchClicks: () => (P.snap && P.snap.newMatchCount) || 0,
     newMatchTotal: () => (P.snap && P.snap.newMatchNeed) || 4,
@@ -967,6 +987,42 @@ function nextHand() {
   setTimeout(again, 3000);
 }
 
+function stopP2PClocks() {
+  if (P.loop) { clearInterval(P.loop); P.loop = null; }
+  if (P.uiTimer) { clearInterval(P.uiTimer); P.uiTimer = null; }
+  if (P.latencyTimer) { clearInterval(P.latencyTimer); P.latencyTimer = null; }
+  if (P.watchdogTimer) { clearInterval(P.watchdogTimer); P.watchdogTimer = null; }
+}
+
+function showP2PEnded(who) {
+  P.ended = true;
+  stopP2PClocks();
+  setPaused([], false);
+  hideResult();
+  if (P.inGame) {
+    showBoard(`${who}退出了对局，房间已解散`, { ended: true });
+    window.__roomEndedExit = () => { hideBoard(); exitP2P(); };
+  }
+}
+
+function quitP2P() {
+  if (!P.inGame || P.ended) { exitP2P(); return; }
+  const who = P.role === 'host'
+    ? (P.hostOnly ? '电脑主机' : ((P.players[0] && P.players[0].name) || P.name || '房主'))
+    : (P.name || '玩家');
+  if (P.role === 'host') {
+    for (const g of P.conns) { try { g.conn.send({ t: 'quit', by: who }); } catch (e) {} }
+    P.ended = true;
+    setTimeout(() => exitP2P(), 220);
+  } else if (P.role === 'guest') {
+    try { if (P.hostConn && P.hostConn.open) P.hostConn.send({ t: 'quit', by: who }); } catch (e) {}
+    P.ended = true;
+    setTimeout(() => exitP2P(), 140);
+  } else {
+    exitP2P();
+  }
+}
+
 function exitP2P() {
   if (P.latencyTimer) { clearInterval(P.latencyTimer); P.latencyTimer = null; }
   if (P.watchdogTimer) { clearInterval(P.watchdogTimer); P.watchdogTimer = null; }
@@ -983,6 +1039,9 @@ function exitP2P() {
   hideBoard();
   setPaused([], false);
   setRoomCode(null);
+  clearLobbyHeader();
+  setLobbyStage('create');
+  showLobbyRules(false);
   backToHome();
   el('lobby').classList.remove('show');
   const entryBox = el('p2p-box');
@@ -1003,8 +1062,8 @@ function reset() {
   clearTimeout(P.joinTimer);
   clearTimeout(P.reconnectTimer);
   Object.assign(P, {
-    role: null, hostOnly: false, seatReady: false, code: '', seat: 0, peer: null, conns: [], players: [],
-    engine: null, started: false, over: false, version: 0, deadline: null,
+    role: null, hostOnly: false, seatReady: false, code: '', seat: 0, peer: null, conns: [], players: [], hostRule: null,
+    engine: null, started: false, over: false, ended: false, version: 0, deadline: null,
     lastKey: '', lastBotAt: 0, lastSentVersion: -1, snap: null, inGame: false,
     resultKey: '', lastPhase: '', lastStateVersion: -1, hostConn: null, loop: null, uiTimer: null, joinTimer: null,
     clockOffset: 0, connGen: 0, reconnectTimer: null, reconnectTry: 0, handshakeTimer: null, latencyTimer: null, watchdogTimer: null, lastHostMsgAt: 0,
@@ -1107,6 +1166,14 @@ function errText(e) {
   if (t === 'webrtc') return '点对点连接失败，两个人先连同一个 WiFi';
   return t || (e.message || '未知错误');
 }
+
+window.addEventListener('jianli-lobby-rule', (e) => {
+  if (P.role !== 'host' || P.started) return;
+  P.rule = { ...DEFAULT_RULE, ...normalizeLobbyRule(e.detail || {}) };
+  renderLobbyRules(P.rule, { editable: true });
+  showLobbyRules(true);
+  hostBroadcastLobby();
+});
 
 export function openP2P(mode = 'create', hostOnly = false) {
   window.__lobbyBack = exitP2P;
