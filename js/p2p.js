@@ -160,7 +160,11 @@ function buildEntryUI(mode = 'create') {
   const codeInput = el('p2p-code');
   if (codeInput) codeInput.addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
   el('lobby-actions').innerHTML = '';
-  el('lobby-seats').innerHTML = '';
+  const seatsBox = el('lobby-seats');
+  if (seatsBox) {
+    seatsBox.innerHTML = '';
+    seatsBox.classList.remove('is-on');
+  }
   status('');
 }
 

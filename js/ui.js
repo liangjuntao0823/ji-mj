@@ -1222,10 +1222,12 @@ async function copyLobbyInfo() {
 export function setLobbyRoomHeader(opts = {}) {
   const c = String(opts.code || '').trim();
   const head = D.querySelector('.lobby-head');
+  const card = D.querySelector('.lobby-card');
   const copy = $('lobby-copy');
   if (!c) {
     UI.lobbyShare = null;
     if (head) head.classList.remove('is-room');
+    if (card) card.classList.remove('is-room');
     if (copy) copy.classList.remove('is-on');
     setLobbyRoomCode(null);
     return;
@@ -1237,6 +1239,7 @@ export function setLobbyRoomHeader(opts = {}) {
     rule: normalizeLobbyRule(opts.rule || {}),
   };
   if (head) head.classList.add('is-room');
+  if (card) card.classList.add('is-room');
   if (copy) copy.classList.toggle('is-on', opts.showCopy !== false);
 }
 
@@ -1295,7 +1298,8 @@ export function renderLobbySeats(opts = {}) {
       return p ? [p.name || '', !!p.isBot, p.online !== false] : null;
     }),
   ]);
-  if (box.classList.contains('is-on') && sig === lobbySeatsSig) return;
+  const hasRows = box.querySelector('.lobby-seat');
+  if (box.classList.contains('is-on') && hasRows && sig === lobbySeatsSig) return;
   lobbySeatsSig = sig;
   const rows = [];
   for (let i = 0; i < 4; i++) {

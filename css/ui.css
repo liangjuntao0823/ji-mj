@@ -1819,9 +1819,9 @@ img { -webkit-user-drag: none; user-select: none; }
    ============================================================ */
 .lobby-head { position: relative; }
 .lobby-copy {
-  display: none; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  display: none; position: absolute; left: 50%; top: calc(50% - 7px); transform: translate(-50%, -50%);
   align-items: center; justify-content: center; gap: 7px;
-  height: 38px; padding: 0 18px; border-radius: 19px;
+  height: 34px; padding: 0 18px; border-radius: 17px;
   border: 1px solid rgba(217, 184, 120, 0.42);
   background: rgba(247, 230, 184, 0.09);
   color: var(--gold-hi); font-size: 14px; letter-spacing: 1px; white-space: nowrap;
@@ -1842,6 +1842,13 @@ img { -webkit-user-drag: none; user-select: none; }
 }
 .lobby-code-row input:focus { border-color: rgba(247, 230, 184, 0.7); box-shadow: 0 0 0 2px rgba(247, 230, 184, 0.12); }
 .lobby-code-row input::placeholder { color: rgba(244, 236, 216, 0.34); letter-spacing: 1px; }
+
+/* 房间内：本桌模式放左边，四个头像座位放右边；与创建入口互不影响 */
+.lobby-card.is-room .lobby-body {
+  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
+}
+.lobby-card.is-room .lobby-main-col { order: 2; }
+.lobby-card.is-room .lobby-side-col { order: 1; }
 
 /* 创建入口：上面名字 + 创建按钮，下面模式 */
 .lobby-card.is-create-entry .lobby-body {
@@ -1927,7 +1934,7 @@ img { -webkit-user-drag: none; user-select: none; }
 /* 手机横屏下房号复制按钮跟着大厅一起放大，避免只有半个指头大 */
 @media (max-width: 1100px), (max-height: 560px) {
   .lobby-copy {
-    height: 74px; padding: 0 26px; border-radius: 37px;
-    font-size: 22px; letter-spacing: 1.5px;
+    height: 64px; padding: 0 24px; border-radius: 32px;
+    font-size: 21px; letter-spacing: 1.5px;
   }
 }
