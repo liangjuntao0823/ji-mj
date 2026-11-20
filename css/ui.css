@@ -1195,7 +1195,7 @@ img { -webkit-user-drag: none; user-select: none; }
 }
 #lobby.show { display: flex; }
 .lobby-card {
-  width: min(980px, 94vw); max-height: 88vh; overflow: auto;
+  width: 980px; max-width: 94%; max-height: 780px; overflow: auto;
   padding: 38px 58px 38px;
   border-radius: 32px;
   background: linear-gradient(180deg, rgba(13, 58, 48, 0.96), rgba(4, 22, 18, 0.98));
