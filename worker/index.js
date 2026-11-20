@@ -10,7 +10,7 @@ const OFFLINE_MS = 12000;
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Room-Code',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -30,10 +30,20 @@ function cleanName(s) {
   return String(s || '').replace(/[<>{}"'`\\]/g, '').trim().slice(0, 8) || '玩家';
 }
 
+function validHostPassword(value) {
+  const d = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  return String(value || '').trim() === d.toISOString().slice(11, 16).replace(':', '');
+}
+
+
 export class RoomCore {
   constructor() {
     this.room = {
       code: String(Math.floor(100000 + Math.random() * 900000)),
+      created: false,
+      ended: false,
+      endedBy: '',
+      endedAt: 0,
       nextReady: [false, false, false, false],
       newMatch: [false, false, false, false],
       players: [],
@@ -182,10 +192,13 @@ export class RoomCore {
     snap.stats = { wins: this.room.stats.wins.slice(), fan: this.room.stats.fan.slice() };
     snap.paused = !!this.room.paused;
     snap.offlineNames = this.offlineNames();
+    snap.ended = !!this.room.ended;
+    snap.endedBy = this.room.endedBy || '';
     return snap;
   }
 
   tick() {
+    if (this.room.ended) return;
     const now = Date.now();
     this.syncPresence();
     if (!this.room.started || !this.room.engine) return;
@@ -256,10 +269,30 @@ export class RoomCore {
       });
     }
 
+    if (url.pathname === '/api/create' && request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      if (!validHostPassword(body.password)) return json({ error: '验证没通过' }, 403);
+      if (room.created && !room.ended && room.started) return json({ error: '对局进行中，先解散再开新房间' }, 409);
+      const name = cleanName(body.name);
+      this.resetRoom();
+      room = this.room;
+      room.created = true;
+      room.players = [{ name, token: token(), isBot: false, online: true, lastSeen: Date.now() }];
+      room.rule = { ...DEFAULT_RULE, ...(body.rule && typeof body.rule === 'object' ? body.rule : {}) };
+      room.rule.rounds = [8, 16, 32].includes(Number(room.rule.rounds)) ? Number(room.rule.rounds) : ROUNDS;
+      room.version++;
+      return json({ code: room.code, seat: 0, token: room.players[0].token, name });
+    }
+
     if (url.pathname === '/api/join' && request.method === 'POST') {
       if (room.closed) { this.resetRoom(); room = this.room; }
       const body = await request.json().catch(() => ({}));
       const name = cleanName(body.name);
+      const code = String(body.code || '').trim();
+      if (!room.created) return json({ error: '房主还没开房' }, 409);
+      if (!code || code !== room.code) return json({ error: '房号不对' }, 404);
+      if (room.ended) return json({ error: '房间已解散，请让房主重新开房' }, 410);
+      this.syncPresence();
       const oldSeat = room.players.findIndex((p) => p && !p.isBot && p.name === name);
       const canReclaim = oldSeat >= 0 && !room.players[oldSeat].online;
       if (canReclaim) {
@@ -267,7 +300,7 @@ export class RoomCore {
         room.players[oldSeat] = { ...room.players[oldSeat], token: t, online: true, lastSeen: Date.now() };
         room.version++;
         this.syncPresence();
-        return json({ seat: oldSeat, token: t, name: room.players[oldSeat].name, resumed: true });
+        return json({ code: room.code, seat: oldSeat, token: t, name: room.players[oldSeat].name, resumed: true });
       }
       if (room.started && !room.over) return json({ error: '本局已经开始，等这局打完再加入' }, 409);
       if (oldSeat >= 0 && room.players[oldSeat].online) return json({ error: '这个名字已经在座，换一个名字' }, 409);
@@ -276,15 +309,32 @@ export class RoomCore {
       const seat = room.players.length;
       room.players.push({ name, token: t, isBot: false, online: true, lastSeen: Date.now() });
       room.version++;
-      return json({ seat, token: t, name: room.players[seat].name });
+      return json({ code: room.code, seat, token: t, name: room.players[seat].name });
     }
 
     if (url.pathname === '/api/dissolve' && request.method === 'POST') {
       const body = await request.json().catch(() => ({}));
       const seat = this.seatByToken(body.token || '');
       if (seat !== 0) return json({ error: '只有房主能解散房间' }, 403);
-      this.dissolve();
-      return json({ ok: true });
+      const who = room.players[seat] ? room.players[seat].name : '房主';
+      room.ended = true;
+      room.endedBy = who;
+      room.endedAt = Date.now();
+      room.version++;
+      return json({ ok: true, code: room.code, endedBy: who });
+    }
+
+    if (url.pathname === '/api/quit' && request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const seat = this.seatByToken(body.token || '');
+      if (seat < 0) return json({ error: '未入座' }, 401);
+      const who = room.players[seat] ? room.players[seat].name : '玩家';
+      room.ended = true;
+      room.endedBy = who;
+      room.endedAt = Date.now();
+      room.paused = false;
+      room.version++;
+      return json({ ok: true, code: room.code, endedBy: who });
     }
 
     if (url.pathname === '/api/state' && request.method === 'GET') {
@@ -292,6 +342,14 @@ export class RoomCore {
       const t = url.searchParams.get('token') || '';
       const seat = this.seatByToken(t);
       if (seat < 0) return json({ error: '未入座' }, 401);
+      if (room.ended) {
+        return json({
+          seat, code: room.code, started: room.started, version: room.version,
+          ended: true, endedBy: room.endedBy,
+          snapshot: room.engine ? this.snapshotFor(seat) : null,
+          rounds: room.rule.rounds || ROUNDS, rule: room.rule,
+        });
+      }
       room.players[seat].lastSeen = Date.now();
       room.players[seat].online = true;
       this.syncPresence();
@@ -299,11 +357,12 @@ export class RoomCore {
         return json({
           seat, code: room.code, started: false, version: room.version,
           seats: room.players.map((p) => ({ name: p.name, isBot: p.isBot, online: p.online })), snapshot: null, rounds: room.rule.rounds || ROUNDS,
+          rule: room.rule,
         });
       }
       return json({
         seat, code: room.code, started: room.started, version: room.version,
-        snapshot: this.snapshotFor(seat), rounds: room.rule.rounds || ROUNDS,
+        snapshot: this.snapshotFor(seat), rounds: room.rule.rounds || ROUNDS, rule: room.rule,
       });
     }
 
@@ -311,15 +370,34 @@ export class RoomCore {
       const body = await request.json().catch(() => ({}));
       const seat = this.seatByToken(body.token || '');
       if (seat < 0) return json({ error: '未入座' }, 401);
+      if (room.ended) return json({ error: '房间已解散' }, 409);
       if (room.paused) return json({ error: '有玩家掉线，等待重连' }, 409);
       if (!room.engine || room.engine.state.phase === 'finished') return json({ error: '当前不能操作' }, 400);
       const ok = this.applyAction(body.action || {}, seat);
       return json({ ok }, ok ? 200 : 400);
     }
 
+    if (url.pathname === '/api/rule' && request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const seat = this.seatByToken(body.token || '');
+      if (seat !== 0) return json({ error: '只有房主能改模式' }, 403);
+      if (room.started && !room.over) return json({ error: '已经开局了，不能改模式' }, 400);
+      const rule = body.rule && typeof body.rule === 'object' ? body.rule : {};
+      room.rule = {
+        ...room.rule,
+        rounds: [8, 16, 32].includes(Number(rule.rounds)) ? Number(rule.rounds) : room.rule.rounds,
+        withDragons: !!rule.withDragons,
+        addonEnabled: !!rule.addonEnabled,
+        baseShare: Math.max(1, Math.min(3, Number(rule.baseShare) || room.rule.baseShare || 1)),
+      };
+      room.version++;
+      return json({ ok: true, rule: room.rule });
+    }
+
     if (url.pathname === '/api/start' && request.method === 'POST') {
       const body = await request.json().catch(() => ({}));
       const seat = this.seatByToken(body.token || '');
+      if (room.ended) return json({ error: '房间已解散' }, 409);
       if (seat !== 0) return json({ error: '只有房主能开局' }, 403);
       if (room.started && !room.over) return json({ error: '已经开局了' }, 400);
       this.startGame(body.rule || room.rule);
@@ -330,6 +408,7 @@ export class RoomCore {
       const body = await request.json().catch(() => ({}));
       const seat = this.seatByToken(body.token || '');
       if (seat < 0) return json({ error: '未入座' }, 401);
+      if (room.ended) return json({ error: '房间已解散' }, 409);
       if (room.paused) return json({ error: '有玩家掉线，等待重连' }, 409);
       if (!room.engine) return json({ error: '还没开局' }, 400);
       const s = room.engine.state;
@@ -391,12 +470,12 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return json({ ok: true, service: 'jianli-majiang-api', version: 'v125', time: Date.now() });
+      return json({ ok: true, service: 'jianli-majiang-api', version: 'v126', time: Date.now() });
     }
     if (!url.pathname.startsWith('/api/')) {
       return json({ error: 'not found' }, 404);
     }
-    const stub = env.ROOM.get(env.ROOM.idFromName('v125'));
+    const stub = env.ROOM.get(env.ROOM.idFromName('v126'));
     return stub.fetch(request);
   },
 };

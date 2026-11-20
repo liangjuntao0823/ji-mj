@@ -6,6 +6,7 @@ import {
   G as UIView, initTable, renderAll, updateTimer, showToast, clearToast,
   showResult, hideResult, backToHome, resetEventState, initHome,
   showBoard, hideBoard, setRoomCode, setNetLatency, clearNetLatency,
+  renderLobbyRules as renderLobbyRulesView, showLobbyRules,
 } from './ui.js';
 import { openLAN } from './net.js';
 import { openP2P } from './p2p.js';
@@ -62,35 +63,8 @@ function syncHomeRuleControls() {
 
 function renderLobbyRules() {
   const panel = el('lobby-rules');
-  const grid = el('lobby-rules-grid');
-  const summary = el('lobby-rules-summary');
-  if (!panel || !grid || !summary || !panel.classList.contains('is-on')) return;
-  const mode = HOME_RULE.withDragons ? '中发白' : '红中';
-  summary.textContent = `${HOME_RULE.rounds} 局 · ${mode} · ${HOME_RULE.addonEnabled ? '自由加增' : '不加增'} · 围增倒${HOME_RULE.baseShare}`;
-  const seg = (labelText, group, items, current) => `
-    <div class="lobby-rule-item">
-      <span>${labelText}</span>
-      <div class="lr-seg">${items.map(([value, text]) => `<button type="button" data-lr-group="${group}" data-lr-value="${value}" class="${String(value) === String(current) ? 'is-on' : ''}">${text}</button>`).join('')}</div>
-    </div>`;
-  grid.innerHTML = [
-    seg('局数', 'rounds', [[8, '8局'], [16, '16局'], [32, '32局']], HOME_RULE.rounds),
-    seg('牌组', 'deck', [['red', '红中'], ['dragons', '中发白']], HOME_RULE.withDragons ? 'dragons' : 'red'),
-    seg('加增', 'addon', [[0, '不加增'], [1, '自由加增']], HOME_RULE.addonEnabled ? 1 : 0),
-    seg('围增', 'share', [[1, '倒1'], [2, '倒2'], [3, '倒3']], HOME_RULE.baseShare),
-  ].join('');
-  grid.querySelectorAll('button[data-lr-group]').forEach((b) => {
-    b.addEventListener('click', () => {
-      const group = b.dataset.lrGroup;
-      const value = b.dataset.lrValue;
-      if (group === 'rounds') HOME_RULE.rounds = [8, 16, 32].includes(Number(value)) ? Number(value) : 8;
-      if (group === 'deck') { HOME_RULE.withDragons = value === 'dragons'; }
-      if (group === 'addon') HOME_RULE.addonEnabled = value === '1';
-      if (group === 'share') HOME_RULE.baseShare = Math.max(1, Math.min(3, Number(value) || 1));
-      syncHomeRuleControls();
-      renderLobbyRules();
-      refreshHomeLabels();
-    });
-  });
+  if (!panel || !panel.classList.contains('is-on')) return;
+  renderLobbyRulesView(HOME_RULE, { editable: true });
 }
 
 function refreshHomeLabels() {
@@ -125,13 +99,12 @@ function readHomeRule() {
   }
   refreshHomeLabels();
   renderLobbyRules();
+  window.dispatchEvent(new CustomEvent('jianli-lobby-rule', { detail: { ...HOME_RULE } }));
   return { ...HOME_RULE };
 }
 
 function setLobbyRuleVisible(show) {
-  const panel = el('lobby-rules');
-  if (!panel) return;
-  panel.classList.toggle('is-on', !!show);
+  showLobbyRules(!!show);
   if (show) renderLobbyRules();
 }
 (function bindHomeRule() {
@@ -164,6 +137,25 @@ function setLobbyRuleVisible(show) {
   if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) { modal.classList.remove('show'); readHomeRule(); } });
   const lobbyEdit = el('lobby-rules-edit');
   if (lobbyEdit && modal) lobbyEdit.addEventListener('click', () => { readHomeRule(); modal.classList.add('show'); });
+
+  /* 大厅里的模式面板：房主直接点按钮即可改；客队按钮被禁用 */
+  const lobbyGrid = el('lobby-rules-grid');
+  if (lobbyGrid) lobbyGrid.addEventListener('click', (e) => {
+    const panel = el('lobby-rules');
+    if (panel && panel.classList.contains('is-readonly')) return;
+    const b = e.target.closest('button[data-lr-group]');
+    if (!b) return;
+    const group = b.dataset.lrGroup;
+    const value = b.dataset.lrValue;
+    if (group === 'rounds') HOME_RULE.rounds = [8, 16, 32].includes(Number(value)) ? Number(value) : 8;
+    if (group === 'deck') HOME_RULE.withDragons = value === 'dragons';
+    if (group === 'addon') HOME_RULE.addonEnabled = value === '1';
+    if (group === 'share') HOME_RULE.baseShare = Math.max(1, Math.min(3, Number(value) || 1));
+    syncHomeRuleControls();
+    renderLobbyRules();
+    refreshHomeLabels();
+    window.dispatchEvent(new CustomEvent('jianli-lobby-rule', { detail: { ...HOME_RULE } }));
+  });
 })();
 
 /* ---------------- 入口 ---------------- */

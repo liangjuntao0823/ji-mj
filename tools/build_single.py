@@ -33,8 +33,8 @@ for name in ORDER:
     mods[name] = src
 
 # 头像换成 data URI，避免单文件还要带 assets 目录
-for nick in ("tao", "li", "mei", "qiang"):
-    rel = "assets/img/avatar-%s.jpg" % nick
+for avatar in sorted((ROOT / "assets/img").glob("avatar-*.jpg")):
+    rel = avatar.relative_to(ROOT).as_posix()
     uri = data_uri_img(rel)
     for k in mods:
         mods[k] = mods[k].replace(rel, uri)
