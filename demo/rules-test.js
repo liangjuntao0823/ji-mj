@@ -31,7 +31,7 @@ T('裸奔 7 倍（3 副露含杠 + 单钓）', 7, { hand: [9, 9], melds: [{ kind
 T('十八罗汉 10 倍（+清一色 14）', 14, { hand: [6, 6], melds: [{ kind: 'gangConcealed', tile: 0 }, { kind: 'gangExposed', tile: 1 }, { kind: 'gangAdded', tile: 2 }, { kind: 'gangConcealed', tile: 3 }], drawCount: 8 });
 T('明活带 3 倍（碰过的牌又摸回来）', 3, { hand: [5, 9, 9, 9, 18, 18, 18, 0, 0, 1, 2], melds: [{ kind: 'peng', tile: 5 }], drawCount: 6 }, ['明活带']);
 T('天胡 +5（屁胡不记）', 5, { hand: MI, melds: [], drawCount: 1, dealer: 0, seat: 0 }, ['天胡']);
-T('地胡 +5', 5, { hand: MI, melds: [], drawCount: 3, dealer: 0, seat: 1 }, ['地胡']);
+T('地胡 +5', 5, { hand: MI, melds: [], drawCount: 1, dealer: 0, seat: 1 }, ['地胡']);
 T('报听 +3（屁胡不记）', 3, { hand: MI, melds: [], drawCount: 6, declared: true }, ['报听']);
 T('杠上开花 +0.5（合计 2）', 2, { hand: MI, melds: [], drawCount: 6, afterGang: true }, ['杠上开花']);
 T('海底捞月 +0.5（合计 2）', 2, { hand: MI, melds: [], drawCount: 6, wallRemaining: 0 }, ['海底捞月']);

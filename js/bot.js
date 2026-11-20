@@ -89,3 +89,30 @@ export function discardCandidate(hand) {
   }
   return best;
 }
+
+/** 30 秒超时托管：按用户口径统一单机 / 联机 / 公网服务器。
+ *  - 手里有油：先补油；
+ *  - 碰牌后必须出牌：随机打一张；
+ *  - 正常摸牌后：打刚摸进来的那张；
+ *  - 其余情况才用常规候选牌。
+ */
+export function timeoutAction(engine, seat) {
+  const s = engine && engine.state;
+  if (!s || !s.players || !s.players[seat]) return { type: 'pass' };
+  const p = s.players[seat];
+  if ((p.hand || []).some(isPizi)) return { type: 'bu' };
+
+  if (s.mustDiscard === seat) {
+    const legal = (p.hand || []).filter((t) => !isPizi(t));
+    if (!legal.length) return { type: 'pass' };
+    return { type: 'discard', tile: legal[Math.floor(Math.random() * legal.length)] };
+  }
+
+  const drawn = s.lastDrawn;
+  if (drawn !== null && drawn !== undefined && (p.hand || []).includes(drawn)) {
+    return { type: 'discard', tile: drawn };
+  }
+
+  const tile = discardCandidate(p.hand || []);
+  return tile === null ? { type: 'pass' } : { type: 'discard', tile };
+}

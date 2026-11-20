@@ -2,8 +2,7 @@
  * 不需要电脑、不需要服务器，四个人在同一个 WiFi 下就能打。
  */
 import { Engine, DEFAULT_RULE } from './engine.js';
-import { nextAction, discardCandidate } from './bot.js';
-import { isPizi } from './tiles.js';
+import { nextAction, timeoutAction } from './bot.js';
 import { initTable, renderAll, updateTimer, showResult, hideResult, backToHome, updateReadyBar, setRoomCode, setPaused, showBoard, hideBoard, setNetLatency, clearNetLatency } from './ui.js';
 
 const ROUNDS = 8;
@@ -605,12 +604,8 @@ function hostTick() {
     if (d.kind === 'discard') {
       const who = s.players[d.seat];
       who.declareIntent = false;  /* 超时自动出牌，报听声明作废 */
-      if (who.hand.some(isPizi)) { applyHostAction({ type: 'bu' }, d.seat); return; }
-      /* 单钓已明牌时只能打刚摸的那张 */
-      const forced = (who.singleLocked !== null && s.lastDrawn !== null && who.hand.includes(s.lastDrawn))
-        ? s.lastDrawn : null;
-      const t = forced !== null ? forced : discardCandidate(who.hand);
-      if (t !== null) applyHostAction({ type: 'discard', tile: t }, d.seat);
+      const a = timeoutAction(P.engine, d.seat);
+      if (a.type !== 'pass') applyHostAction(a, d.seat);
     } else {
       applyHostAction({ type: 'pass' }, d.seat);
     }
@@ -1090,6 +1085,7 @@ function showFinal() {
     hand: (!snap.drawnGame && snap.result && snap.result.hand) || null,
     melds: (!snap.drawnGame && snap.result && snap.result.melds) || null,
     fans: (!snap.drawnGame && snap.result && snap.result.fans) || null,
+    lastResult: snap.result ? { ...snap.result, drawnGame: !!snap.drawnGame } : null,
   });
 }
 

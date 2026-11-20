@@ -28,7 +28,7 @@
 
         <div class="home-left">
           <div class="home-eyebrow">湖北 · 监利 · 红中·油</div>
-          <div class="home-version" id="home-version">v1.1.3 · 2026-11-19</div>
+          <div class="home-version" id="home-version">v1.2.5 · 2026-11-20</div>
           <h1 class="home-title">监利红中<em>MAHJONG</em></h1>
           <p class="home-desc">
             112 张牌（勾选中发白 120 张），<b>红中当油必打</b>，<b>只许自摸</b>，碰杠四档算分。
@@ -84,7 +84,7 @@
               </span>
               <span class="mode-entry-body">
                 <span class="mode-entry-title">模式选择</span>
-                <span class="mode-entry-sum" id="mode-summary">8 局 · 默认 · 不加增</span>
+                <span class="mode-entry-sum" id="mode-summary">8 局 · 红中 · 不加增</span>
               </span>
               <span class="mode-entry-arrow" aria-hidden="true">›</span>
             </button>
@@ -208,6 +208,14 @@
             <button class="big-btn" id="lobby-join">加入房间</button>
           </div>
           <div class="lobby-seats" id="lobby-seats"></div>
+          <div class="lobby-rules" id="lobby-rules">
+            <div class="lobby-rules-head">
+              <span>本桌模式</span>
+              <button type="button" id="lobby-rules-edit">打开模式选择</button>
+            </div>
+            <div class="lobby-rules-summary" id="lobby-rules-summary"></div>
+            <div class="lobby-rules-grid" id="lobby-rules-grid"></div>
+          </div>
           <div class="lobby-actions" id="lobby-actions"></div>
           <div class="lobby-status" id="lobby-status"></div>
         </div>
@@ -215,6 +223,11 @@
 
       <!-- ===== 结算 ===== -->
       <div id="result"><div id="result-card"></div></div>
+      <div id="result-detail">
+        <div class="detail-card" id="detail-card"></div>
+      </div>
+      <!-- 牌桌中央动作提示：1 秒左右，动作名 + 牌图 -->
+      <div id="center-call" aria-live="polite"></div>
 
       <!-- ===== 记分板 ===== -->
       <div id="board"></div>
@@ -252,7 +265,10 @@
           </div>
           <div class="mode-row">
             <div class="mode-row-label">牌组</div>
-            <label class="cfg-check mode-check"><input type="checkbox" id="cfg-dragons"><i></i><span>中发白</span><em>发财、白板同红中</em></label>
+            <div class="mode-deck">
+              <label class="cfg-check mode-check"><input type="checkbox" id="cfg-red" checked><i></i><span>红中</span><em>默认 · 112 张</em></label>
+              <label class="cfg-check mode-check"><input type="checkbox" id="cfg-dragons"><i></i><span>中发白</span><em>加发财、白板 · 120 张</em></label>
+            </div>
           </div>
           <div class="mode-row">
             <div class="mode-row-label">加增</div>
@@ -267,7 +283,7 @@
             </div>
           </div>
           <div class="mode-share-note">围增把四家基础份子统一抬到 1 / 2 / 3；自由加增另算。</div>
-          <div class="mode-tip">设置对单机、创建房间和加入房间都生效。</div>
+          <div class="mode-tip">红中 / 中发白只能选一个，默认红中；创建房间面板也会同步显示，方便确认房规。</div>
           <button class="rules-close" id="mode-close">完成</button>
         </div>
       </div>
@@ -289,7 +305,8 @@
               <p>手上带油<b>不能出牌、不能胡、不能杠</b>，必须先把油补完；中发白模式下发财、白板与红中一样算油。</p>
               <p>开局手里的油不再自动摆出：庄家先补，其余玩家轮到自己的回合再补；碰牌后由碰的人先补，再按顺序继续。</p>
               <p>最后 4 张各摸各胡阶段摸到油，只摆出、不补尾牌；油张数决定份子倍数，默认最高 ×8，中发白模式最高 ×12。</p>
-              <p>一家补出满 4 张油，按暗杠记 <b>15 分</b>。</p>
+              <p>一家补出满 4 张油，按暗杠记 <b>15 分</b>；中发白模式的中 / 发 / 白要各自满 4 张，才各记一次暗杠。</p>
+              <p><b>中发白局末：</b>小局结束时按当前手牌里的中/发/白数量算，各正好 2 张＝一个回头笑（每家 5 分），各正好 3 张＝一个暗杠（每家 15 分）；只看局末数量，不看历史补出。</p>
             </div>
             <div class="rules-block">
               <h4>碰与四种杠</h4>
@@ -302,8 +319,8 @@
             <div class="rules-block">
               <h4>番型（倍数相加）</h4>
               <p>屁胡 1 · 对子胡 3 · 七对 4 · 豪华七对 8 · 清八对 8 · 豪华清八对 10 · 十八罗汉 10 · 裸奔 7。</p>
-              <p>明活带 3 · 暗活带 5 · 清一色 4 · 天胡 5 · 地胡 5 · 报听 3。</p>
-              <p>加番：清摸球 +0.5 · 杠上开花 +0.5 · 海底捞月 +0.5。</p>
+              <p>明活带 3 · 暗活带 5 · 清一色 4 · 天胡 5 · 地胡 5 · 报听 3 · <b>满天星 10</b>。</p>
+              <p>加番：清摸球 +0.5 · 杠上开花 +0.5 · 海底捞月 +0.5。中发白模式集齐中/发/白各 4 张即满天星，不看手牌型，可与海底捞月、杠上开花叠加。</p>
             </div>
             <div class="rules-block">
               <h4>算分</h4>
@@ -314,7 +331,7 @@
             </div>
             <div class="rules-block">
               <h4>流程与时限</h4>
-              <p>出牌 30 秒、碰杠应答 30 秒，超时自动出牌 / 自动过。</p>
+              <p>出牌 30 秒、碰杠应答 30 秒，超时自动出牌 / 自动过；联机与单机同一套托管逻辑，只有真掉线才暂停。</p>
               <p>最后 4 张各摸各胡：四家各抓一张只摸不打，抓到油点「补」摆出但不补牌，可暗杠、回头笑、胡牌；胡了后面的人不再摸。</p>
               <p>创建房间可选 <b>8 / 16 / 32 局</b>，打完出排名；最后一局结算会展示赢家番型和完整手牌。</p>
               <p>联机时四人齐点「下一局」才继续；整场结束四人齐点才重开。</p>

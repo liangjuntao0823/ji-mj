@@ -36,6 +36,18 @@ function countsOf(tiles) {
   return c;
 }
 
+const PIZI_KINDS = [RED_RAW, FA_RAW, BAI_RAW];
+const countRaw = (tiles, raw) => (tiles || []).filter((t) => t === raw).length;
+const piziCounts = (tiles) => PIZI_KINDS.map((raw) => countRaw(tiles, raw));
+
+/** 中发白各 2 / 各 3：只在局末按当前手牌数量判定，不看历史补出的油。 */
+function dragonSetOf(hand) {
+  const c = piziCounts(hand);
+  if (c.every((n) => n === 2)) return { kind: 'added', label: '中发白各2', counts: c };
+  if (c.every((n) => n === 3)) return { kind: 'concealed', label: '中发白各3', counts: c };
+  return null;
+}
+
 /** 全部成对（七对 / 清八对类） */
 function allPairs(tiles) {
   const c = countsOf(tiles);
@@ -208,6 +220,11 @@ export class Engine {
       lastDiscard: null,
       /* 杠分/回头笑分：本局先记账，局末统一结算 */
       gangLedger: [],
+      /* 中发白局末组合（各2/各3）与四张油暗杠：局末统一结算 */
+      dragonSets: [],
+      dragonSetsSettled: false,
+      /** 满天星标记，正常胡牌不会用到，结算面板用于展示 4/4/4 油 */
+      manTianXing: false,
       /* 自由加增：本局每人选的加增份数（0~3），开局前四家选完才发牌 */
       addons: [0, 0, 0, 0],
       addonChosen: [true, true, true, true],
@@ -233,6 +250,9 @@ export class Engine {
     state.finalQueue = [];
     state.finalIndex = 0;
     state.gangLedger = [];
+    state.dragonSets = [];
+    state.dragonSetsSettled = false;
+    state.manTianXing = false;
     state.lastDiscard = null;
     state.addons = [0, 0, 0, 0];
     state.addonChosen = state.players.map((p) => !!p.isBot);
@@ -282,6 +302,9 @@ export class Engine {
     state.finalQueue = [];
     state.finalIndex = 0;
     state.gangLedger = [];
+    state.dragonSets = [];
+    state.dragonSetsSettled = false;
+    state.manTianXing = false;
     state.lastDiscard = null;
 
     // 发 13 轮，庄家起手各 1 张
@@ -542,6 +565,58 @@ export class Engine {
 
   /* ---------------- 胡（只能自摸） ---------------- */
 
+  /** 满天星：中发白模式集齐中/发/白各 4 张，手牌是什么都不看。 */
+  #hasManTianXing(p) {
+    if (!this.rule.withDragons) return false;
+    const exposed = p.piziTiles || [];
+    return PIZI_KINDS.every((raw) => countRaw(p.hand, raw) + countRaw(exposed, raw) === 4);
+  }
+
+  #huManTianXing(seat, afterGang = this.state.lastDrawnAfterGang) {
+    const s = this.state;
+    const p = s.players[seat];
+    const fans = [{ name: '满天星', mult: 10 }];
+    let total = 10;
+    if (afterGang) { total += 0.5; fans.push({ name: '杠上开花', mult: 0.5, add: true }); }
+    if (s.finalMode) { total += 0.5; fans.push({ name: '海底捞月', mult: 0.5, add: true }); }
+    const baseScore = Math.round(this.rule.selfDrawBase * total);
+    const payments = {};
+    for (const o of othersOf(seat)) payments[o] = this.amount(baseScore, seat, o);
+    for (const o of othersOf(seat)) {
+      const v = payments[o] || 0;
+      s.players[o].score -= v;
+      p.score += v;
+    }
+    const dragonSets = this.#settleDragonSets();
+    const gangSettled = this.#settleGangLedger();
+    const result = {
+      winner: seat,
+      hand: p.hand.slice(),
+      melds: p.melds.map((m) => ({ ...m })),
+      winnerPizi: (p.piziTiles || []).slice(),
+      payments,
+      winnerReds: p.redsPlayed,
+      base: baseScore,
+      baseMult: this.rule.selfDrawBase,
+      baseShare: Math.max(1, Math.min(3, Number(this.rule.baseShare) || 1)),
+      mult: total,
+      gangSettled,
+      dragonSets,
+      fans,
+      fanName: fans.map((f) => f.name).join('.'),
+      manTianXing: true,
+      scores: s.players.map((x) => x.score),
+      roundIndex: s.roundIndex,
+      seed: s.seed,
+    };
+    s.phase = PHASE.FINISHED;
+    s.winner = seat;
+    s.drawnGame = false;
+    s.manTianXing = true;
+    s.result = result;
+    return [{ type: 'hu', seat, payments, manTianXing: true }];
+  }
+
   #hu(seat) {
     const s = this.state;
     if ((s.phase !== PHASE.DISCARD && s.phase !== PHASE.FINALDRAW) || s.current !== seat) throw new EngineError('没轮到你');
@@ -572,6 +647,7 @@ export class Engine {
       s.players[o].score -= v;
       p.score += v;
     }
+    const dragonSets = this.#settleDragonSets();
     const gangSettled = this.#settleGangLedger();
     const result = {
       winner: seat,
@@ -584,6 +660,7 @@ export class Engine {
       baseShare: Math.max(1, Math.min(3, Number(this.rule.baseShare) || 1)),
       mult: fan.mult,
       gangSettled,
+      dragonSets,
       fans: fan.fans,
       fanName: fan.fanName,
       scores: s.players.map((x) => x.score),
@@ -637,6 +714,7 @@ export class Engine {
     const out = [];
     let lastReal = null;
     let exposed = 0;
+    const wasAfterGang = !!s.lastDrawnAfterGang;
 
     /* 点一次「补」把当前手里的油全部摆出；每摆一张就从牌尾补一张。
        如果尾牌补到的还是油，也算在这同一次「补」里继续摆、继续补。 */
@@ -655,6 +733,10 @@ export class Engine {
         if (s.wall.remaining <= 4) break;
         const re = s.wall.drawBack();
         if (re === null) {
+          if (this.#hasManTianXing(p)) {
+            out.push(...this.#huManTianXing(seat, wasAfterGang));
+            return out;
+          }
           out.push(...this.#finishDrawn());
           return out;
         }
@@ -671,8 +753,14 @@ export class Engine {
       }
     }
 
-    if (exposed > 0) s.lastDrawnAfterGang = lastReal !== null;
+    if (exposed > 0) s.lastDrawnAfterGang = wasAfterGang || lastReal !== null;
     if (lastReal !== null) s.lastDrawn = lastReal;
+
+    /* 中发白 4/4/4：补油后立即满天星，不看手牌型。 */
+    if (this.#hasManTianXing(p)) {
+      out.push(...this.#huManTianXing(seat, wasAfterGang));
+      return out;
+    }
 
     if (s.phase === PHASE.FINALDRAW) {
       out.push(...this.#advanceFinal());
@@ -695,7 +783,13 @@ export class Engine {
     p.redsPlayed++;
     p.piziTiles.push(raw);
     out.push({ type: 'bu', seat, tile: raw, count: p.redsPlayed });
-    if (p.redsPlayed === 4) out.push(...this.#pay(this.rule.redGangBase, seat, othersOf(seat), 'redGang'));
+    /* 中发白模式：中/发/白各自满 4 张都算一次暗杠；不能按“总油数”算，
+       否则 2 中 + 2 发也会被误判成四张红中。 */
+    const same = countRaw(p.piziTiles, raw);
+    if (same === 4) {
+      out.push({ type: 'piziGang', seat, tile: raw, count: 4 });
+      out.push(...this.#pay(this.rule.redGangBase, seat, othersOf(seat), 'redGang', raw));
+    }
   }
 
   /* ---------------- 海底捞月：最后 4 张各摸各胡 ---------------- */
@@ -752,11 +846,12 @@ export class Engine {
 
   #finishDrawn() {
     const s = this.state;
+    const dragonSets = this.#settleDragonSets();
     const gangSettled = this.#settleGangLedger();
     s.phase = PHASE.FINISHED;
     s.drawnGame = true;
     s.winner = null;
-    s.result = { gangSettled };
+    s.result = { gangSettled, dragonSets };
     return [{ type: 'drawnGame' }];
   }
 
@@ -778,16 +873,44 @@ export class Engine {
   }
 
   /** 杠分/回头笑：本局先记账，等这一小局结束（胡牌或流局）再统一加减 */
-  #pay(base, winner, payers, reason) {
+  #pay(base, winner, payers, reason, tile = null) {
     const out = [];
     for (const payer of payers) {
       if (payer === winner) continue;
       const v = this.amount(base, winner, payer);
-      const entry = { type: 'score', from: payer, to: winner, amount: v, reason, pending: true };
+      const entry = { type: 'score', from: payer, to: winner, amount: v, reason, tile, pending: true };
       this.state.gangLedger.push(entry);
       out.push(entry);
     }
     return out;
+  }
+
+  /** 中发白局末组合与四张油暗杠：只在当前手牌里数，不把历史补出的油算回来。 */
+  #settleDragonSets() {
+    const s = this.state;
+    if (s.dragonSetsSettled) return [];
+    s.dragonSetsSettled = true;
+    const sets = [];
+    for (const p of s.players) {
+      const handSet = this.rule.withDragons ? dragonSetOf(p.hand) : null;
+      if (handSet) {
+        const base = handSet.kind === 'added' ? this.rule.addedGangBase : this.rule.concealedGangBase;
+        const entries = this.#pay(base, p.seat, othersOf(p.seat),
+          handSet.kind === 'added' ? 'dragonAdded' : 'dragonConcealed', null);
+        sets.push({ ...handSet, seat: p.seat, base, entries, total: entries.reduce((a, e) => a + e.amount, 0) });
+        continue;
+      }
+      /* 手里攥着 4 张同一种油：按暗杠记；已经补到台面的 4 张在 #exposePizi 时已记过，这里不会重复。 */
+      for (const raw of PIZI_KINDS) {
+        if (countRaw(p.hand, raw) === 4) {
+          const entries = this.#pay(this.rule.concealedGangBase, p.seat, othersOf(p.seat), 'dragonQuad', raw);
+          sets.push({ kind: 'quad', seat: p.seat, tile: raw, base: this.rule.concealedGangBase,
+            entries, total: entries.reduce((a, e) => a + e.amount, 0) });
+        }
+      }
+    }
+    s.dragonSets = sets;
+    return sets;
   }
 
   /** 局末统一结算本局攒下的杠分 */

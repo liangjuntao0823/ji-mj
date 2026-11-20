@@ -130,7 +130,7 @@ function startPolling() {
   if (!NET.localTimer) {
     NET.localTimer = setInterval(() => {
       if (!NET.snap || !NET.snap.turnDeadline) return;
-      const total = NET.snap.phase === 'awaitingClaim' ? 8000 : 30000;
+      const total = 30000;
       updateTimer((NET.snap.turnDeadline - Date.now()) / total);
     }, 100);
   }
@@ -406,6 +406,7 @@ function maybeShowResult() {
       hand: (!snap.drawnGame && snap.result && snap.result.hand) || null,
       melds: (!snap.drawnGame && snap.result && snap.result.melds) || null,
       fans: (!snap.drawnGame && snap.result && snap.result.fans) || null,
+      lastResult: snap.result ? { ...snap.result, drawnGame: !!snap.drawnGame } : null,
     });
     return;
   }
@@ -418,8 +419,6 @@ function maybeShowResult() {
       payments: null,
       scores: snap.players.map((p) => p.score),
       names: namesOf(),
-    ready: snap.nextReady,
-    mySeat,
       ready: snap.nextReady,
       mySeat,
       reds: snap.players.map((p) => p.redsPlayed),

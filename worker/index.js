@@ -3,8 +3,7 @@
  * 前端仍从 Pages / GitHub Pages 打开，只把 /api/* 指到这里。
  */
 import { Engine, DEFAULT_RULE } from '../js/engine.js';
-import { nextAction, discardCandidate } from '../js/bot.js';
-import { isPizi } from '../js/tiles.js';
+import { nextAction, timeoutAction } from '../js/bot.js';
 
 const ROUNDS = 8;
 const OFFLINE_MS = 12000;
@@ -218,9 +217,10 @@ export class RoomCore {
       const d = this.room.deadline;
       this.room.deadline = null;
       if (d.kind === 'discard') {
-        if (s.players[d.seat].hand.some(isPizi)) { this.applyAction({ type: 'bu' }, d.seat); return; }
-        const t = discardCandidate(s.players[d.seat].hand);
-        if (t !== null) this.applyAction({ type: 'discard', tile: t }, d.seat);
+        const p = s.players[d.seat];
+        p.declareIntent = false;
+        const a = timeoutAction(this.room.engine, d.seat);
+        if (a.type !== 'pass') this.applyAction(a, d.seat);
       } else {
         this.applyAction({ type: 'pass' }, d.seat);
       }
@@ -391,12 +391,12 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return json({ ok: true, service: 'jianli-majiang-api', version: 'v123', time: Date.now() });
+      return json({ ok: true, service: 'jianli-majiang-api', version: 'v125', time: Date.now() });
     }
     if (!url.pathname.startsWith('/api/')) {
       return json({ error: 'not found' }, 404);
     }
-    const stub = env.ROOM.get(env.ROOM.idFromName('v123'));
+    const stub = env.ROOM.get(env.ROOM.idFromName('v125'));
     return stub.fetch(request);
   },
 };

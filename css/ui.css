@@ -658,6 +658,14 @@ img { -webkit-user-drag: none; user-select: none; }
 }
 .hand-hint b { color: var(--gold-hi); font-weight: 600; letter-spacing: 2px; }
 .hand-hint .warn { color: #f0a48f; }
+.hand-hint.is-waiting {
+  height: 38px; padding: 0 20px; border-radius: 19px;
+  font-size: 19px; letter-spacing: 1.5px;
+  color: rgba(255, 246, 220, 0.9);
+  background: rgba(3, 22, 18, 0.78);
+  border-color: rgba(217, 184, 120, 0.3);
+}
+.hand-hint.is-waiting b { font-size: 21px; color: #fff2cb; }
 .hand-hint.is-off { display: none; }
 
 /* 牌河 */
@@ -969,6 +977,70 @@ img { -webkit-user-drag: none; user-select: none; }
 
 .result-actions { display: flex; justify-content: center; gap: 14px; margin-top: 16px; }
 
+/* 牌桌中央动作提示：动作名 + 牌图，约 1 秒；不带玩家名 */
+#center-call {
+  position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%) scale(0.94);
+  z-index: 95; display: none; align-items: center; justify-content: center; gap: 14px;
+  min-width: 150px; padding: 16px 28px 15px;
+  border-radius: 20px; color: #fff3d0;
+  background: linear-gradient(180deg, rgba(9, 48, 38, 0.94), rgba(3, 24, 19, 0.96));
+  border: 1px solid rgba(247, 230, 184, 0.6);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  pointer-events: none; opacity: 0;
+}
+#center-call.show { display: flex; animation: centerCallIn 0.16s ease-out both; }
+#center-call .cc-text {
+  font-family: "STZhongsong", "Songti SC", "SimSun", serif;
+  font-size: 42px; letter-spacing: 4px; line-height: 1;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+}
+#center-call .cc-tile {
+  --tile-w: 54px; --tile-h: 72px;
+  display: inline-flex; align-items: center; justify-content: center;
+  transform: rotate(-2deg);
+}
+#center-call .cc-tile .tile { --tile-w: 54px; --tile-h: 72px; }
+@keyframes centerCallIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.82); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* 单局结算：详细计算数据 */
+#result-detail {
+  position: fixed; inset: 0; z-index: 110; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.58); backdrop-filter: blur(5px);
+}
+#result-detail.show { display: flex; }
+.detail-card {
+  width: min(880px, 92vw); max-height: 88vh; overflow: auto;
+  padding: 24px 26px 20px; border-radius: 22px;
+  background: linear-gradient(180deg, #0b3128, #061c17 70%);
+  border: 1px solid rgba(217, 184, 120, 0.5);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.7);
+  color: var(--ink);
+}
+.detail-card::-webkit-scrollbar { width: 6px; }
+.detail-card::-webkit-scrollbar-thumb { background: rgba(217, 184, 120, 0.3); border-radius: 3px; }
+.detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.detail-title { font-family: "STZhongsong", "Songti SC", "SimSun", serif; font-size: 30px; letter-spacing: 3px; color: #fff0c8; }
+.detail-sub { margin-top: 6px; font-size: 14px; color: rgba(244, 236, 216, 0.62); line-height: 1.7; }
+.detail-close { flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%; border: 1px solid rgba(217, 184, 120, 0.45); background: rgba(0, 0, 0, 0.2); color: #f3e8c9; font-size: 22px; line-height: 1; cursor: pointer; }
+.detail-close:hover { background: rgba(247, 230, 184, 0.12); }
+.detail-section { margin-top: 20px; }
+.detail-section h4 { margin: 0 0 10px; font-size: 15px; font-weight: 500; letter-spacing: 2px; color: rgba(244, 236, 216, 0.62); }
+.detail-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.detail-table th, .detail-table td { padding: 9px 8px; text-align: center; font-size: 15px; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+.detail-table th { font-size: 13px; font-weight: 500; color: rgba(244, 236, 216, 0.45); border-bottom-color: rgba(217, 184, 120, 0.22); }
+.detail-table td.name { text-align: left; color: #f4ecd8; padding-left: 10px; }
+.detail-table td.pos { color: #9de0c0; font-weight: 700; }
+.detail-table td.neg { color: #ef9b86; font-weight: 700; }
+.detail-table tr.is-me td { background: rgba(247, 230, 184, 0.06); }
+.detail-row-note { padding: 10px 0 0; font-size: 13px; color: rgba(244, 236, 216, 0.48); line-height: 1.7; }
+.detail-empty { padding: 12px 0; font-size: 14px; color: rgba(244, 236, 216, 0.5); }
+.detail-formula { font-size: 13px; color: rgba(244, 236, 216, 0.55); line-height: 1.7; }
+.detail-formula b { color: #f5dfa8; font-weight: 600; }
+
 /* 本局总分一行 */
 .result-scores { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
 .score-chip {
@@ -1176,6 +1248,31 @@ img { -webkit-user-drag: none; user-select: none; }
 }
 .seat-row.filled { color: var(--ink); background: rgba(247, 230, 184, 0.06); border-color: rgba(217, 184, 120, 0.28); }
 .seat-row.me { border-color: rgba(247, 230, 184, 0.55); box-shadow: inset 0 0 0 1px rgba(247, 230, 184, 0.16); }
+.lobby-rules {
+  display: none; margin-top: 14px; padding: 13px 16px;
+  border-radius: 14px; background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(217, 184, 120, 0.2);
+}
+.lobby-rules.is-on { display: block; }
+.lobby-rules-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.lobby-rules-head span { font-size: 15px; letter-spacing: 2px; color: var(--gold); }
+.lobby-rules-head button {
+  min-height: 32px; padding: 0 12px; border-radius: 16px;
+  border: 1px solid rgba(217, 184, 120, 0.35); background: rgba(247, 230, 184, 0.06);
+  color: rgba(244, 236, 216, 0.8); font-size: 13px; cursor: pointer;
+}
+.lobby-rules-head button:hover { border-color: rgba(247, 230, 184, 0.6); color: var(--gold-hi); }
+.lobby-rules-summary { margin-top: 8px; font-size: 16px; line-height: 1.6; color: rgba(244, 236, 216, 0.8); }
+.lobby-rules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin-top: 10px; }
+.lobby-rule-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.035); }
+.lobby-rule-item span { font-size: 13px; color: rgba(244, 236, 216, 0.52); white-space: nowrap; }
+.lobby-rule-item .lr-value { font-size: 14px; color: #f6e5b8; font-weight: 600; }
+.lobby-rule-item .lr-seg { display: flex; gap: 4px; flex-wrap: wrap; }
+.lobby-rule-item .lr-seg button {
+  min-height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid rgba(217, 184, 120, 0.25);
+  background: rgba(0, 0, 0, 0.15); color: rgba(244, 236, 216, 0.72); font-size: 12px; cursor: pointer;
+}
+.lobby-rule-item .lr-seg button.is-on { color: #2a1b06; background: linear-gradient(180deg, #f7e6b8, #d6b273); border-color: rgba(255, 246, 219, 0.7); font-weight: 700; }
 .lobby-actions { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 18px; }
 .lobby-actions .big-btn { width: 100%; height: 62px; font-size: 20px; }
 .lobby-card .big-btn { height: 62px; font-size: 20px; }
@@ -1444,6 +1541,7 @@ img { -webkit-user-drag: none; user-select: none; }
 .pause-reconnect.is-on { display: block; }
 .final-winner { margin: 12px auto 4px; padding: 10px 14px 8px; border-radius: 16px; background: rgba(217, 184, 120, 0.08); border: 1px solid rgba(217, 184, 120, 0.25); }
 .final-winner-title { font-size: 19px; color: var(--gold-hi); letter-spacing: 3px; }
+.final-winner-meta { margin-top: 5px; font-size: 13px; line-height: 1.6; color: rgba(244, 236, 216, 0.58); }
 .final-winner-fans { margin-top: 5px; display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; }
 
 /* 首页模式入口 */
@@ -1490,6 +1588,7 @@ img { -webkit-user-drag: none; user-select: none; }
 }
 .mode-row-label { width: 92px; flex: 0 0 92px; font-size: 15px; letter-spacing: 2px; color: var(--gold); }
 .mode-row .mode-seg { flex: 1 1 auto; }
+.mode-deck { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 22px; align-items: center; }
 .mode-card .mode-seg button { height: 50px; padding: 0 26px; border-radius: 12px; font-size: 18px; }
 .mode-card .mode-check { flex: 1 1 auto; gap: 11px; font-size: 18px; color: var(--ink); }
 .mode-card .mode-check i { width: 24px; height: 24px; border-radius: 7px; }
