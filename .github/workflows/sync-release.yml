@@ -1,4 +1,4 @@
-name: sync-v1.2.3-release
+name: sync-v1.2.5-release
 on:
   push:
     paths:
@@ -11,14 +11,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Download release payload
-        run: curl -fsSL https://aka.doubaocdn.com/s/fePhLmBVOe -o /tmp/release.tar.gz
+        run: curl -fsSL https://aka.doubaocdn.com/s/eDUFTK0axn -o /tmp/release.tar.gz
       - name: Apply payload
         run: |
           mkdir -p /tmp/payload
           tar -xzf /tmp/release.tar.gz -C /tmp/payload
           rsync -a --exclude='.git' --exclude='.github' /tmp/payload/ ./
-      - name: Commit release
+      - name: Build single-file
+        run: python3 tools/build_single.py
+      - name: Commit main
         run: |
           git config user.name 'jianli-release-bot'
           git config user.email 'bot@users.noreply.github.com'
@@ -26,6 +30,21 @@ jobs:
           if git diff --cached --quiet; then
             echo 'no changes'
           else
-            git commit -m 'release: v1.2.3 白边修复与番型组合名'
-            git push
+            git commit -m 'release: v1.2.5 结算明细/中央提示/中发白满天星/联机托管'
+            git push origin HEAD:main
           fi
+      - name: Prepare gh-pages
+        run: |
+          rm -rf gh-pages-dist
+          mkdir -p gh-pages-dist
+          rsync -a --exclude='.git' --exclude='.github' --exclude='gh-pages-dist' ./ gh-pages-dist/
+          cp '监利红中-横屏版.html' gh-pages-dist/index.html
+      - name: Publish gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./gh-pages-dist
+          user_name: 'jianli-release-bot'
+          user_email: 'bot@users.noreply.github.com'
+          commit_message: 'release: v1.2.5'
