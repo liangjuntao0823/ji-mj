@@ -3,6 +3,7 @@
  * 前端仍从 Pages / GitHub Pages 打开，只把 /api/* 指到这里。
  */
 import { Engine, DEFAULT_RULE } from '../js/engine.js';
+import { Wall } from '../js/tiles.js';
 import { nextAction, timeoutAction } from '../js/bot.js';
 
 const ROUNDS = 8;
@@ -30,6 +31,22 @@ function cleanName(s) {
   return String(s || '').replace(/[<>{}"'`\\]/g, '').trim().slice(0, 8) || '玩家';
 }
 
+/* Durable Object 可能被回收，保存可恢复的牌局状态；Engine 只保存纯 state，恢复时重新构造实例。 */
+function roomForStorage(room) {
+  const { engine, ...rest } = room;
+  return {
+    ...rest,
+    engine: engine ? {
+      ...engine.state,
+      wall: engine.state.wall ? {
+        tiles: engine.state.wall.tiles,
+        head: engine.state.wall.head,
+        tail: engine.state.wall.tail,
+      } : null,
+    } : null,
+  };
+}
+
 function validHostPassword(value) {
   const d = new Date(Date.now() + 8 * 60 * 60 * 1000);
   return String(value || '').trim() === d.toISOString().slice(11, 16).replace(':', '');
@@ -37,8 +54,8 @@ function validHostPassword(value) {
 
 
 export class RoomCore {
-  constructor() {
-    this.room = {
+  constructor(saved = null) {
+    const fresh = {
       code: String(Math.floor(100000 + Math.random() * 900000)),
       created: false,
       ended: false,
@@ -60,6 +77,20 @@ export class RoomCore {
       deadline: null,
       rule: { ...DEFAULT_RULE, rounds: ROUNDS },
     };
+    if (!saved) {
+      this.room = fresh;
+      return;
+    }
+    this.room = { ...fresh, ...saved };
+    if (saved.engine) {
+      const engineState = { ...saved.engine };
+      if (engineState.wall) {
+        engineState.wall = new Wall(engineState.wall.tiles, engineState.wall.head, engineState.wall.tail, this.room.rule.withDragons);
+      }
+      this.room.engine = new Engine({ state: engineState, rule: this.room.rule || DEFAULT_RULE });
+    } else {
+      this.room.engine = null;
+    }
   }
 
   seatByToken(t) {
@@ -457,11 +488,22 @@ export class RoomCore {
 export class Room {
   constructor(state, env) {
     this.state = state;
-    this.core = new RoomCore();
+    this.core = null;
+    this.ready = this.state.blockConcurrencyWhile(async () => {
+      const saved = await this.state.storage.get('room');
+      this.core = new RoomCore(saved || null);
+    });
   }
 
   async fetch(request) {
-    return this.core.handle(request);
+    await this.ready;
+    const response = await this.core.handle(request);
+    try {
+      await this.state.storage.put('room', roomForStorage(this.core.room));
+    } catch (error) {
+      console.error('room persistence failed', error);
+    }
+    return response;
   }
 }
 
