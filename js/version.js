@@ -1,8 +1,16 @@
 /* 版本号与更新记录：每次发版同步修改这里与根目录 CHANGELOG.md */
-export const APP_VERSION = '1.2.7';
+export const APP_VERSION = '1.2.8';
 export const APP_RELEASED_AT = '2026-11-21';
 
 export const APP_RELEASES = [
+  {
+    version: '1.2.8',
+    date: '2026-11-21',
+    updates: [
+      '新增 majiang.fangyuan88.site 入口：页面和公网接口同域，手机流量可直接打开并正常建房、加入',
+      '公网服务器地址改为当前页面同源；pages.dev 和 GitHub Pages 备用站继续可用',
+    ],
+  },
   {
     version: '1.2.7',
     date: '2026-11-21',
