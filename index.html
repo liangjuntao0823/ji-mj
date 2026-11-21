@@ -28,7 +28,7 @@
 
         <div class="home-left">
           <div class="home-eyebrow">湖北 · 监利 · 红中·油</div>
-          <div class="home-version" id="home-version">v1.2.7 · 2026-11-21</div>
+          <div class="home-version" id="home-version">v1.2.8 · 2026-11-21</div>
           <h1 class="home-title">监利红中<em>MAHJONG</em></h1>
           <p class="home-desc">
             112 张牌（勾选中发白 120 张），<b>红中当油必打</b>，<b>只许自摸</b>，碰杠四档算分。
@@ -403,7 +403,12 @@
 </div>
 
 <!-- 公网服务器地址：B 模式「公网服务器」走这里；与页面同源，跨网络可用 -->
-<script>window.JIANLI_SERVER_URL = 'https://jianli-majiang.pages.dev';</script>
+<script>
+window.JIANLI_SERVER_URL = (function () {
+  if (/\.github\.io$/i.test(location.hostname)) return 'https://jianli-majiang.pages.dev';
+  return (location.protocol === 'http:' || location.protocol === 'https:') ? location.origin : '';
+})();
+</script>
 <!-- PeerJS：手机点对点建房用，需在模块脚本之前加载（挂 window.Peer） -->
 <script src="js/vendor/peerjs.min.js"></script>
 <script type="module" src="js/game.js"></script>
