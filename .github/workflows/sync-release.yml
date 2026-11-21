@@ -1,4 +1,4 @@
-name: sync-v1.2.7-release
+name: sync-v1.2.8-release
 on:
   push:
     paths:
@@ -14,7 +14,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Download release payload
-        run: curl -fsSL https://aka.doubaocdn.com/s/ten7jRzX7l -o /tmp/release.tar.gz
+        run: curl -fsSL https://aka.doubaocdn.com/s/JdMuLE6PVS -o /tmp/release.tar.gz
       - name: Apply payload
         run: |
           mkdir -p /tmp/payload
@@ -30,7 +30,7 @@ jobs:
           if git diff --cached --quiet; then
             echo 'no changes'
           else
-            git commit -m 'release: v1.2.7 大厅左右布局对调与复制胶囊缩窄'
+            git commit -m 'release: v1.2.8 自定义域名同域公网联机'
             git push origin HEAD:main
           fi
       - name: Prepare gh-pages
@@ -47,4 +47,4 @@ jobs:
           publish_dir: ./gh-pages-dist
           user_name: 'jianli-release-bot'
           user_email: 'bot@users.noreply.github.com'
-          commit_message: 'release: v1.2.7 lobby swap and copy pill height'
+          commit_message: 'release: v1.2.8 custom domain same-origin API'
