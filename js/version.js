@@ -10,6 +10,9 @@ export const APP_RELEASES = [
       '新增 majiang.fangyuan88.site 入口：页面和公网接口同域，手机流量可直接打开并正常建房、加入',
       '公网服务器地址改为当前页面同源；pages.dev 和 GitHub Pages 备用站继续可用',
     ],
+    fixes: [
+      '公网房间状态写入 Durable Object 存储，Worker 回收实例后房号、座位和牌局状态不丢失',
+    ],
   },
   {
     version: '1.2.7',
